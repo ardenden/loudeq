@@ -11,10 +11,14 @@
 use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
 
 use loudeq::*;
-use windows::core::{w, PCWSTR};
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, TRUE, WPARAM};
+use windows::core::{w, HSTRING, PCWSTR, PWSTR};
+use windows::ApplicationModel::{StartupTask, StartupTaskState};
+use windows::Win32::Foundation::{APPMODEL_ERROR_NO_PACKAGE, HWND, LPARAM, LRESULT, POINT, TRUE, WPARAM};
 use windows::Win32::Graphics::Gdi::{CreateBitmap, DeleteObject};
+use windows::Win32::Storage::Packaging::Appx::GetCurrentPackageFullName;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 use windows::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE,
     NIM_MODIFY, NOTIFYICONDATAW,
@@ -238,7 +242,30 @@ unsafe fn show_menu(hwnd: HWND) {
     }
 }
 
+/// Whether we're running from an MSIX package (Store install).
+fn is_packaged() -> bool {
+    let mut len = 0u32;
+    match unsafe { GetCurrentPackageFullName(&mut len, PWSTR::null()) } {
+        Ok(()) => true,
+        // Insufficient-buffer means there IS a package name to return.
+        Err(e) => e.code() != APPMODEL_ERROR_NO_PACKAGE.to_hresult(),
+    }
+}
+
+/// The StartupTask declared in AppxManifest.xml (Store build only).
+fn startup_task() -> Option<StartupTask> {
+    StartupTask::GetAsync(&HSTRING::from("LoudeqTrayStartup"))
+        .and_then(|op| op.get())
+        .ok()
+}
+
 fn autostart_enabled() -> bool {
+    if is_packaged() {
+        return startup_task()
+            .and_then(|t| t.State().ok())
+            .map(|s| s == StartupTaskState::Enabled || s == StartupTaskState::EnabledByPolicy)
+            .unwrap_or(false);
+    }
     RegKey::predef(HKEY_CURRENT_USER)
         .open_subkey(RUN_KEY)
         .and_then(|k| k.get_value::<String, _>(RUN_VALUE))
@@ -246,6 +273,20 @@ fn autostart_enabled() -> bool {
 }
 
 fn set_autostart(enable: bool) {
+    if is_packaged() {
+        let Some(task) = startup_task() else { return };
+        if enable {
+            let state = task.RequestEnableAsync().and_then(|op| op.get());
+            if state == Ok(StartupTaskState::DisabledByUser) {
+                // The user disabled it in Settings before; Windows won't let
+                // apps re-enable it silently — send them to the right page.
+                open_startup_settings();
+            }
+        } else {
+            let _ = task.Disable();
+        }
+        return;
+    }
     let Ok((key, _)) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(RUN_KEY) else {
         return;
     };
@@ -255,6 +296,19 @@ fn set_autostart(enable: bool) {
         }
     } else {
         let _ = key.delete_value(RUN_VALUE);
+    }
+}
+
+fn open_startup_settings() {
+    unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            w!("ms-settings:startupapps"),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        );
     }
 }
 

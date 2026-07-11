@@ -1,0 +1,66 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSIX manifest for the Microsoft Store build of loudeq.
+
+  PLACEHOLDERS to fill in from Partner Center after reserving the app name
+  (Product management > Product identity):
+    - Identity/@Name       = Package Identity Name (e.g. "12345ardenden.loudeq")
+    - Identity/@Publisher  = Publisher ID (e.g. "CN=XXXXXXXX-XXXX-...")
+    - PublisherDisplayName = Publisher display name shown in the Store
+-->
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+         xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         IgnorableNamespaces="uap uap5 desktop rescap">
+
+  <Identity Name="ardenden.LoudEQ"
+            Publisher="CN=37B6B9F3-38C7-4DC2-9CCE-F08F6BB3B8C6"
+            Version="0.1.0.0"
+            ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>LoudEQ</DisplayName>
+    <PublisherDisplayName>ardenden</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>Toggle Windows Loudness Equalization from the system tray or command line.</Description>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="LoudeqTray" Executable="loudeq-tray.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements DisplayName="LoudEQ"
+                          Description="Toggle Windows Loudness Equalization from the system tray."
+                          Square150x150Logo="Assets\Square150x150Logo.png"
+                          Square44x44Logo="Assets\Square44x44Logo.png"
+                          BackgroundColor="transparent" />
+      <Extensions>
+        <!-- Appears under Settings > Apps > Startup; the tray menu's
+             "Start with Windows" opens that page in the packaged build. -->
+        <uap5:Extension Category="windows.startupTask" Executable="loudeq-tray.exe"
+                        EntryPoint="Windows.FullTrustApplication">
+          <uap5:StartupTask TaskId="LoudeqTrayStartup" Enabled="false" DisplayName="loudeq tray" />
+        </uap5:Extension>
+        <!-- Lets users run `loudeq` from any terminal. -->
+        <uap5:Extension Category="windows.appExecutionAlias" Executable="loudeq.exe"
+                        EntryPoint="Windows.FullTrustApplication">
+          <uap5:AppExecutionAlias>
+            <uap5:ExecutionAlias Alias="loudeq.exe" />
+          </uap5:AppExecutionAlias>
+        </uap5:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>
