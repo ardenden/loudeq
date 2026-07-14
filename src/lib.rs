@@ -247,6 +247,7 @@ pub fn reset_endpoint(full_id: &str) -> windows::core::Result<()> {
     }
 }
 
+#[derive(Debug)]
 pub struct Device {
     pub guid: String,
     /// Full MMDevice endpoint ID, e.g. "{0.0.0.00000000}.{a748ee06-...}".
@@ -585,5 +586,128 @@ pub fn is_elevated() -> bool {
         );
         let _ = CloseHandle(token);
         ok.is_ok() && elevation.TokenIsElevated != 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn device(name: &str, guid: &str, is_default: bool) -> Device {
+        Device {
+            guid: guid.into(),
+            full_id: format!("{{0.0.0.00000000}}.{guid}"),
+            name: name.into(),
+            is_default,
+        }
+    }
+
+    #[test]
+    fn parse_bool_value_reg_dword() {
+        let on = RegValue { bytes: 1u32.to_le_bytes().to_vec(), vtype: RegType::REG_DWORD };
+        let off = RegValue { bytes: 0u32.to_le_bytes().to_vec(), vtype: RegType::REG_DWORD };
+        assert_eq!(parse_bool_value(&on), Some(true));
+        assert_eq!(parse_bool_value(&off), Some(false));
+    }
+
+    #[test]
+    fn parse_bool_value_vt_bool_propvariant() {
+        // vt=0x0b (VT_BOOL), reserved u32, then a 2-byte VARIANT_BOOL payload.
+        let mut on_bytes = 0x0b_u32.to_le_bytes().to_vec();
+        on_bytes.extend_from_slice(&1u32.to_le_bytes());
+        on_bytes.extend_from_slice(&0xffffu16.to_le_bytes());
+        on_bytes.extend_from_slice(&[0, 0]);
+        let on = RegValue { bytes: on_bytes, vtype: RegType::REG_BINARY };
+        assert_eq!(parse_bool_value(&on), Some(true));
+
+        let mut off_bytes = 0x0b_u32.to_le_bytes().to_vec();
+        off_bytes.extend_from_slice(&1u32.to_le_bytes());
+        off_bytes.extend_from_slice(&0u16.to_le_bytes());
+        off_bytes.extend_from_slice(&[0, 0]);
+        let off = RegValue { bytes: off_bytes, vtype: RegType::REG_BINARY };
+        assert_eq!(parse_bool_value(&off), Some(false));
+    }
+
+    #[test]
+    fn parse_bool_value_vt_ui4_propvariant() {
+        // vt=0x13 (VT_UI4), reserved u32, then a 4-byte value.
+        let mut bytes = 0x13_u32.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&1u32.to_le_bytes());
+        bytes.extend_from_slice(&7u32.to_le_bytes());
+        let rv = RegValue { bytes, vtype: RegType::REG_BINARY };
+        assert_eq!(parse_bool_value(&rv), Some(true));
+    }
+
+    #[test]
+    fn parse_bool_value_rejects_unrecognized_or_too_short() {
+        let unrecognized_vt = RegValue {
+            bytes: 0xffff_u32.to_le_bytes().to_vec(),
+            vtype: RegType::REG_BINARY,
+        };
+        assert_eq!(parse_bool_value(&unrecognized_vt), None);
+
+        let truncated = RegValue { bytes: vec![1, 2, 3], vtype: RegType::REG_BINARY };
+        assert_eq!(parse_bool_value(&truncated), None);
+
+        let wrong_type = RegValue { bytes: b"hello".to_vec(), vtype: RegType::REG_SZ };
+        assert_eq!(parse_bool_value(&wrong_type), None);
+    }
+
+    #[test]
+    fn vt_bool_value_round_trips_through_parse_bool_value() {
+        // The exact property we relied on throughout development: whatever
+        // we write with vt_bool_value must read back correctly through
+        // parse_bool_value, since Windows itself round-trips the same way.
+        assert_eq!(parse_bool_value(&vt_bool_value(true)), Some(true));
+        assert_eq!(parse_bool_value(&vt_bool_value(false)), Some(false));
+    }
+
+    #[test]
+    fn state_text_formats_all_three_states() {
+        assert_eq!(state_text(Some(true)), "ON");
+        assert_eq!(state_text(Some(false)), "OFF");
+        assert_eq!(state_text(None), "OFF (never set)");
+    }
+
+    #[test]
+    fn resolve_target_defaults_to_the_default_device() {
+        let devices = vec![
+            device("Speakers", "guid-a", false),
+            device("Headphones", "guid-b", true),
+        ];
+        let picked = resolve_target(&devices, None).unwrap();
+        assert_eq!(picked.guid, "guid-b");
+    }
+
+    #[test]
+    fn resolve_target_errs_with_no_default_and_no_filter() {
+        let devices = vec![device("Speakers", "guid-a", false)];
+        assert!(resolve_target(&devices, None).is_err());
+    }
+
+    #[test]
+    fn resolve_target_matches_by_case_insensitive_substring() {
+        let devices = vec![
+            device("Speakers (Philips SPA6109)", "guid-a", true),
+            device("EDIFIER W830NB", "guid-b", false),
+        ];
+        let picked = resolve_target(&devices, Some("philips")).unwrap();
+        assert_eq!(picked.guid, "guid-a");
+    }
+
+    #[test]
+    fn resolve_target_errs_on_no_match() {
+        let devices = vec![device("Speakers", "guid-a", true)];
+        assert!(resolve_target(&devices, Some("nonexistent")).is_err());
+    }
+
+    #[test]
+    fn resolve_target_errs_on_ambiguous_match() {
+        let devices = vec![
+            device("EDIFIER W830NB", "guid-a", false),
+            device("EDIFIER W830NB Hands-Free", "guid-b", false),
+        ];
+        let err = resolve_target(&devices, Some("edifier")).unwrap_err();
+        assert!(err.contains("2 devices"));
     }
 }

@@ -1,5 +1,7 @@
 # loudeq
 
+[![CI](https://github.com/ardenden/loudeq/actions/workflows/ci.yml/badge.svg)](https://github.com/ardenden/loudeq/actions/workflows/ci.yml)
+
 A tiny Windows CLI that toggles the built-in **Loudness Equalization** enhancement on a playback device — the same checkbox as *Sound Control Panel → device Properties → Enhancements*, without clicking through it every time. Handy for USB audio devices that the Realtek Audio Console doesn't manage.
 
 ## Usage
