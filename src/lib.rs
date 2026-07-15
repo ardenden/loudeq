@@ -17,7 +17,7 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::Media::Audio::Endpoints::IAudioMeterInformation;
 use windows::Win32::Media::Audio::{
-    eConsole, eRender, ERole, IAudioSystemEffectsPropertyStore, IMMDeviceEnumerator,
+    eConsole, eMultimedia, eRender, ERole, IAudioSystemEffectsPropertyStore, IMMDeviceEnumerator,
     MMDeviceEnumerator, WAVEFORMATEX,
 };
 use windows::Win32::Security::{GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY};
@@ -155,6 +155,23 @@ fn propvariant_clsid(guid: *const GUID) -> PROPVARIANT {
                 },
             }),
         },
+    }
+}
+
+/// Make an endpoint the default playback device — the same action as the
+/// Sound control panel's "Set Default Device" button. Sets both the eConsole
+/// and eMultimedia roles (general playback + apps); eCommunications (the
+/// separate "Default Communication Device") is deliberately left alone,
+/// since users often want a different device for that (e.g. a headset mic
+/// while speakers stay default for everything else).
+pub fn set_default_device(full_id: &str) -> windows::core::Result<()> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let policy: IPolicyConfig = CoCreateInstance(&CPOLICY_CONFIG_CLIENT, None, CLSCTX_ALL)?;
+        let idw: Vec<u16> = full_id.encode_utf16().chain(Some(0)).collect();
+        let id = PCWSTR(idw.as_ptr());
+        policy.set_default_endpoint(id, eConsole).ok()?;
+        policy.set_default_endpoint(id, eMultimedia).ok()
     }
 }
 
