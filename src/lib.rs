@@ -61,6 +61,22 @@ const PKEY_DISABLE_SYSFX: PROPERTYKEY = PROPERTYKEY {
     pid: 5,
 };
 
+/// Loudness EQ release-time parameter (2-7), not exposed by the standard
+/// Enhancements checkbox. Key discovered by reading the open-source
+/// competitor LEQControlPanel's registry-access script rather than blind
+/// registry diffing: https://github.com/ArtIsWar/LEQControlPanel
+/// (src/scripts/Modules/LEQ-Engine.ps1). It writes both pid 3 and pid 1599
+/// with identical data; reason for the second PID is undocumented upstream
+/// too, but matching a known-working implementation removes the guesswork.
+const PKEY_RELEASE_TIME: PROPERTYKEY = PROPERTYKEY {
+    fmtid: GUID::from_u128(0x9c00eeed_edce_4cd8_ae08_cb05e8ef57a0),
+    pid: 3,
+};
+const PKEY_RELEASE_TIME_ALT: PROPERTYKEY = PROPERTYKEY {
+    fmtid: GUID::from_u128(0x9c00eeed_edce_4cd8_ae08_cb05e8ef57a0),
+    pid: 1599,
+};
+
 /// CLSID of the audio policy configuration client (CPolicyConfigClient).
 const CPOLICY_CONFIG_CLIENT: GUID = GUID::from_u128(0x870af99c_171d_4f9e_af0d_e63df40c2bc9);
 
@@ -137,6 +153,23 @@ fn propvariant_u32(v: u32) -> PROPVARIANT {
                 wReserved2: 0,
                 wReserved3: 0,
                 Anonymous: PROPVARIANT_0_0_0 { ulVal: v },
+            }),
+        },
+    }
+}
+
+/// VT_I4 (signed 32-bit), the type the release-time property uses — distinct
+/// from propvariant_u32's VT_UI4, matched to the competitor's known-working
+/// wire format rather than assumed equivalent.
+fn propvariant_i32(v: i32) -> PROPVARIANT {
+    PROPVARIANT {
+        Anonymous: PROPVARIANT_0 {
+            Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
+                vt: windows::Win32::System::Variant::VT_I4,
+                wReserved1: 0,
+                wReserved2: 0,
+                wReserved3: 0,
+                Anonymous: PROPVARIANT_0_0_0 { lVal: v },
             }),
         },
     }
@@ -242,6 +275,96 @@ pub fn apply_loudness_live(
             }
         }
         Ok(wrote)
+    }
+}
+
+/// Set the Loudness EQ release-time parameter (valid range 2-7; meaning
+/// undocumented by Microsoft, taken from LEQControlPanel's exposed range).
+/// Same dual-write approach as apply_loudness_live (flat value + per-instance
+/// user stores) even though the source competitor only confirmed the flat
+/// write — Win11 silently ignoring flat-only writes for the loudness enable
+/// flag is exactly the failure mode this avoids repeating blind.
+pub fn set_release_time(
+    full_id: &str,
+    value: i32,
+    instances: &[String],
+) -> windows::core::Result<usize> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let policy: IPolicyConfig = CoCreateInstance(&CPOLICY_CONFIG_CLIENT, None, CLSCTX_ALL)?;
+        let idw: Vec<u16> = full_id.encode_utf16().chain(Some(0)).collect();
+        let id = PCWSTR(idw.as_ptr());
+
+        let mut pv = propvariant_i32(value);
+        policy.set_property_value(id, BOOL(1), &PKEY_RELEASE_TIME, &mut pv).ok()?;
+        let mut pv_alt = propvariant_i32(value);
+        policy
+            .set_property_value(id, BOOL(1), &PKEY_RELEASE_TIME_ALT, &mut pv_alt)
+            .ok()?;
+
+        let enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+        let device = enumerator.GetDevice(id)?;
+        let mut wrote = 0;
+        for inst in instances {
+            let inst_guid = GUID::from(inst.trim_matches(|c| c == '{' || c == '}'));
+            let params = propvariant_clsid(&inst_guid);
+            let Ok(store) =
+                device.Activate::<IAudioSystemEffectsPropertyStore>(CLSCTX_ALL, Some(&params))
+            else {
+                continue;
+            };
+            let Ok(user) = store.OpenUserPropertyStore(STGM_READWRITE.0) else {
+                continue;
+            };
+            let pv = propvariant_i32(value);
+            if user.SetValue(&PKEY_RELEASE_TIME, &pv).is_ok() {
+                let _ = user.Commit();
+                wrote += 1;
+            }
+        }
+        Ok(wrote)
+    }
+}
+
+/// Read the current release-time value (2-7), preferring the per-instance
+/// store like read_loudness does, falling back to the flat value.
+pub fn read_release_time(guid: &str) -> Option<i32> {
+    let fx = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey_with_flags(fx_properties_path(guid), KEY_READ)
+        .ok()?;
+    let value_name = format!("{{9c00eeed-edce-4cd8-ae08-cb05e8ef57a0}},3");
+    for inst in fx.enum_keys().flatten() {
+        if let Ok(user) = fx.open_subkey_with_flags(format!(r"{inst}\User"), KEY_READ) {
+            if let Ok(rv) = user.get_raw_value(&value_name) {
+                if let Some(v) = parse_i32_value(&rv) {
+                    return Some(v);
+                }
+            }
+        }
+    }
+    parse_i32_value(&fx.get_raw_value(&value_name).ok()?)
+}
+
+/// Like parse_bool_value but returns the raw i32/u32 payload instead of
+/// coercing to bool — needed for release-time's 2-7 range.
+fn parse_i32_value(rv: &RegValue) -> Option<i32> {
+    match rv.vtype {
+        RegType::REG_DWORD => {
+            let b: [u8; 4] = rv.bytes.get(0..4)?.try_into().ok()?;
+            Some(i32::from_le_bytes(b))
+        }
+        RegType::REG_BINARY => {
+            let vt: [u8; 4] = rv.bytes.get(0..4)?.try_into().ok()?;
+            match u32::from_le_bytes(vt) {
+                0x03 | 0x13 => {
+                    let v: [u8; 4] = rv.bytes.get(8..12)?.try_into().ok()?;
+                    Some(i32::from_le_bytes(v))
+                }
+                _ => None,
+            }
+        }
+        _ => None,
     }
 }
 
@@ -671,6 +794,19 @@ mod tests {
     }
 
     #[test]
+    fn parse_i32_value_reads_release_time_range() {
+        // vt=0x03 (VT_I4), reserved u32, then a 4-byte signed payload —
+        // the exact wire format LEQControlPanel uses for release time.
+        for release_time in 2..=7i32 {
+            let mut bytes = 0x03_u32.to_le_bytes().to_vec();
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes.extend_from_slice(&release_time.to_le_bytes());
+            let rv = RegValue { bytes, vtype: RegType::REG_BINARY };
+            assert_eq!(parse_i32_value(&rv), Some(release_time));
+        }
+    }
+
+    #[test]
     fn vt_bool_value_round_trips_through_parse_bool_value() {
         // The exact property we relied on throughout development: whatever
         // we write with vt_bool_value must read back correctly through
@@ -716,6 +852,26 @@ mod tests {
     fn resolve_target_errs_on_no_match() {
         let devices = vec![device("Speakers", "guid-a", true)];
         assert!(resolve_target(&devices, Some("nonexistent")).is_err());
+    }
+
+    /// Touches the real default playback device's registry — skipped by
+    /// default (`cargo test` doesn't run #[ignore]'d tests), run explicitly
+    /// with `cargo test -- --ignored` on a machine with an active device.
+    #[test]
+    #[ignore]
+    fn set_release_time_round_trips_on_real_device() {
+        let guid = default_endpoint_guid().expect("no default playback device");
+        let devices = enumerate_devices(Some(&guid)).unwrap();
+        let dev = devices.into_iter().find(|d| d.guid == guid).unwrap();
+        let instances = fx_instance_guids(&dev.guid);
+
+        let wrote = set_release_time(&dev.full_id, 5, &instances).expect("write failed");
+        assert!(wrote > 0, "expected at least one instance store written");
+        assert_eq!(read_release_time(&dev.guid), Some(5));
+
+        let wrote2 = set_release_time(&dev.full_id, 3, &instances).expect("write failed");
+        assert!(wrote2 > 0);
+        assert_eq!(read_release_time(&dev.guid), Some(3));
     }
 
     #[test]
