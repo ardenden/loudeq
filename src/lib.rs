@@ -521,6 +521,26 @@ pub fn measure_peaks(full_id: &str, seconds: u32) -> Result<(f32, f32), String> 
     }
 }
 
+/// Single instantaneous peak reading, no internal sleep loop — unlike
+/// `measure_peaks`, safe to call repeatedly from a UI timer tick (e.g. every
+/// ~150ms to drive a live meter) without blocking the message loop.
+pub fn peak_now(full_id: &str) -> Result<f32, String> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
+                .map_err(|e| format!("COM error: {e}"))?;
+        let idw: Vec<u16> = full_id.encode_utf16().chain(Some(0)).collect();
+        let device = enumerator
+            .GetDevice(PCWSTR(idw.as_ptr()))
+            .map_err(|e| format!("cannot open device: {e}"))?;
+        let meter: IAudioMeterInformation = device
+            .Activate(CLSCTX_ALL, None)
+            .map_err(|e| format!("cannot open peak meter: {e}"))?;
+        meter.GetPeakValue().map_err(|e| format!("cannot read peak: {e}"))
+    }
+}
+
 /// Whether "disable all enhancements" is set for the endpoint.
 pub fn read_sysfx_disabled(guid: &str) -> bool {
     let disabled = RegKey::predef(HKEY_LOCAL_MACHINE)
