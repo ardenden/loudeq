@@ -327,6 +327,31 @@ pub fn set_release_time(
     }
 }
 
+/// Toggle the endpoint's master "Enable audio enhancements" switch — the same
+/// control the Sound control panel exposes and that Windows 11 buried in most
+/// of its UI, backed by PKEY_AudioEndpoint_Disable_SysFx (1 = all effects off,
+/// 0 = on). This is the parent of the individual enhancements: with it off the
+/// whole sAPO chain is bypassed, so Loudness EQ goes silent too until it's back
+/// on. (Enabling loudness via apply_loudness_live flips this back on for that
+/// reason.) Applied live through the policy service and persisted to the FX
+/// store, no admin required — same mechanism as the loudness write.
+///
+/// Unlike the per-instance loudness/release-time writes, this is a single
+/// endpoint-level property: it lives flat under FxProperties, not in the
+/// \{instance\}\User stores, so there's nothing per-instance to mirror.
+pub fn set_enhancements_enabled(full_id: &str, enabled: bool) -> windows::core::Result<()> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let policy: IPolicyConfig = CoCreateInstance(&CPOLICY_CONFIG_CLIENT, None, CLSCTX_ALL)?;
+        let idw: Vec<u16> = full_id.encode_utf16().chain(Some(0)).collect();
+        let id = PCWSTR(idw.as_ptr());
+        let mut pv = propvariant_u32(if enabled { 0 } else { 1 });
+        policy
+            .set_property_value(id, BOOL(1), &PKEY_DISABLE_SYSFX, &mut pv)
+            .ok()
+    }
+}
+
 /// Read the current release-time value (2-7), preferring the per-instance
 /// store like read_loudness does, falling back to the flat value.
 pub fn read_release_time(guid: &str) -> Option<i32> {
@@ -892,6 +917,27 @@ mod tests {
         let wrote2 = set_release_time(&dev.full_id, 3, &instances).expect("write failed");
         assert!(wrote2 > 0);
         assert_eq!(read_release_time(&dev.guid), Some(3));
+    }
+
+    /// Round-trips the master enhancements switch on the real default device.
+    /// Restores whatever state it started in so running the test doesn't
+    /// silently leave the machine's enhancements off. `--ignored` only.
+    #[test]
+    #[ignore]
+    fn set_enhancements_enabled_round_trips_on_real_device() {
+        let guid = default_endpoint_guid().expect("no default playback device");
+        let devices = enumerate_devices(Some(&guid)).unwrap();
+        let dev = devices.into_iter().find(|d| d.guid == guid).unwrap();
+        let original_enabled = !read_sysfx_disabled(&dev.guid);
+
+        set_enhancements_enabled(&dev.full_id, false).expect("write failed");
+        assert!(read_sysfx_disabled(&dev.guid), "expected enhancements off");
+
+        set_enhancements_enabled(&dev.full_id, true).expect("write failed");
+        assert!(!read_sysfx_disabled(&dev.guid), "expected enhancements on");
+
+        // Leave the device the way we found it.
+        set_enhancements_enabled(&dev.full_id, original_enabled).expect("restore failed");
     }
 
     #[test]
