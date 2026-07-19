@@ -36,7 +36,7 @@ use windows::Win32::System::Services::{
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::Win32::System::Variant::{VT_BOOL, VT_CLSID, VT_UI4};
 use windows::Win32::UI::Shell::PropertiesSystem::PROPERTYKEY;
-use winreg::enums::{RegType, HKEY_LOCAL_MACHINE, KEY_READ, KEY_SET_VALUE};
+use winreg::enums::{RegType, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_SET_VALUE};
 use winreg::{RegKey, RegValue};
 
 pub const RENDER_PATH: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render";
@@ -126,6 +126,41 @@ unsafe trait IPolicyConfig: IUnknown {
     ) -> HRESULT;
     unsafe fn set_default_endpoint(&self, device: PCWSTR, role: ERole) -> HRESULT;
     unsafe fn set_endpoint_visibility(&self, device: PCWSTR, visible: BOOL) -> HRESULT;
+}
+
+/// A *different* interface on the same CPolicyConfigClient object (CLSID
+/// 870af99c). The widely-known f8679f50 IID everyone calls "IPolicyConfig" is
+/// really the Win7-era layout, whose vtable has no mono method. The mono-audio
+/// accessibility setter lives on this sibling interface instead — its IID and
+/// the slot-21 position were recovered by disassembling AudioSes.dll's ATL
+/// interface map and the CComObject<CPolicyConfigClient> vtable (the f8679f50
+/// vtable diverges after the classic 12 methods; this one continues with the
+/// newer setters). Slots 3-20 are placeholders we never call — only their
+/// count matters, to land SetAccessibilityAudioMonoMixState at vtable slot 21.
+/// Inherently Windows-version-sensitive, so set_mono_audio verifies the write
+/// actually took effect and errors out rather than trusting the slot blindly.
+#[windows::core::interface("e8478600-a74b-4b3a-a96b-1fc3e796fc46")]
+unsafe trait IPolicyConfigMono: IUnknown {
+    unsafe fn slot3(&self) -> HRESULT;
+    unsafe fn slot4(&self) -> HRESULT;
+    unsafe fn slot5(&self) -> HRESULT;
+    unsafe fn slot6(&self) -> HRESULT;
+    unsafe fn slot7(&self) -> HRESULT;
+    unsafe fn slot8(&self) -> HRESULT;
+    unsafe fn slot9(&self) -> HRESULT;
+    unsafe fn slot10(&self) -> HRESULT;
+    unsafe fn slot11(&self) -> HRESULT;
+    unsafe fn slot12(&self) -> HRESULT;
+    unsafe fn slot13(&self) -> HRESULT;
+    unsafe fn slot14(&self) -> HRESULT;
+    unsafe fn slot15(&self) -> HRESULT;
+    unsafe fn slot16(&self) -> HRESULT;
+    unsafe fn slot17(&self) -> HRESULT;
+    unsafe fn slot18(&self) -> HRESULT;
+    unsafe fn slot19(&self) -> HRESULT;
+    unsafe fn slot20(&self) -> HRESULT;
+    unsafe fn set_accessibility_mono_mix(&self, state: i32) -> HRESULT;
+    unsafe fn get_accessibility_mono_mix(&self, state: *mut i32) -> HRESULT;
 }
 
 fn propvariant_bool(v: bool) -> PROPVARIANT {
@@ -350,6 +385,47 @@ pub fn set_enhancements_enabled(full_id: &str, enabled: bool) -> windows::core::
             .set_property_value(id, BOOL(1), &PKEY_DISABLE_SYSFX, &mut pv)
             .ok()
     }
+}
+
+/// Toggle Windows' "Mono audio" accessibility setting (Settings →
+/// Accessibility → Audio) — system-wide, no admin. Backed by the same
+/// CPolicyConfigClient object as everything else here, through IPolicyConfig's
+/// SetAccessibilityAudioMonoMixState at vtable slot 21 (see the interface's
+/// reserved-slot comment for how that was found).
+///
+/// A bare registry write to AccessibilityMonoMixState does NOT apply live —
+/// the audio service owns the value and only re-reads it when asked through
+/// this call, which is exactly what the Settings toggle does. Applying it
+/// reconfigures the render endpoints, so expect a brief sub-second audio
+/// glitch, same as flipping the switch in Settings.
+///
+/// The vtable slot is Windows-version-sensitive, so this reads the state back
+/// and returns an error if it didn't actually change — a future build that
+/// moved the method fails cleanly instead of silently calling something else.
+pub fn set_mono_audio(enabled: bool) -> windows::core::Result<()> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let policy: IPolicyConfigMono =
+            CoCreateInstance(&CPOLICY_CONFIG_CLIENT, None, CLSCTX_ALL)?;
+        policy
+            .set_accessibility_mono_mix(if enabled { 1 } else { 0 })
+            .ok()?;
+    }
+    if read_mono_audio() == enabled {
+        Ok(())
+    } else {
+        windows::Win32::Foundation::E_FAIL.ok()
+    }
+}
+
+/// Read the current "Mono audio" state from its per-user registry value
+/// (HKCU, no admin). Absent value means off — Windows' default.
+pub fn read_mono_audio() -> bool {
+    RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(r"Software\Microsoft\Multimedia\Audio")
+        .and_then(|k| k.get_value::<u32, _>("AccessibilityMonoMixState"))
+        .map(|v| v == 1)
+        .unwrap_or(false)
 }
 
 /// Read the current release-time value (2-7), preferring the per-instance
@@ -938,6 +1014,25 @@ mod tests {
 
         // Leave the device the way we found it.
         set_enhancements_enabled(&dev.full_id, original_enabled).expect("restore failed");
+    }
+
+    /// Round-trips the system-wide "Mono audio" accessibility setting through
+    /// the reverse-engineered IPolicyConfig slot, verifying it applies (the
+    /// registry reflects the change) and restoring the original state. This
+    /// is the real proof the vtable slot is correct on this Windows build —
+    /// `--ignored` only, since it touches live audio. Expect a brief glitch.
+    #[test]
+    #[ignore]
+    fn set_mono_audio_round_trips_live() {
+        let original = read_mono_audio();
+
+        set_mono_audio(true).expect("enable failed");
+        assert!(read_mono_audio(), "expected mono on");
+
+        set_mono_audio(false).expect("disable failed");
+        assert!(!read_mono_audio(), "expected mono off");
+
+        set_mono_audio(original).expect("restore failed");
     }
 
     #[test]
