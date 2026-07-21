@@ -3,6 +3,8 @@
 [![CI](https://github.com/ardenden/loudeq/actions/workflows/ci.yml/badge.svg)](https://github.com/ardenden/loudeq/actions/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/ardenden/loudeq)](LICENSE)
 
+[![Get it from Microsoft](https://get.microsoft.com/images/en-us%20dark.svg)](https://apps.microsoft.com/detail/9P5P88XR7NB8?cid=github-readme)
+
 **Toggle Windows Loudness Equalization instantly** — from a system tray icon, a pinned taskbar button, or the command line — instead of digging through the Sound control panel every time.
 
 Loudness Equalization (a.k.a. volume leveling / loudness equalizer) is the built-in Windows audio enhancement that evens out volume differences: quiet dialogue gets louder, loud peaks get tamed. It's great for movies at night, quiet speech, or weak USB speakers — but Windows buries the checkbox in *Sound Control Panel → device Properties → Enhancements*, and it won't stay put on some devices. loudeq turns it into one click.
@@ -10,7 +12,7 @@ Loudness Equalization (a.k.a. volume leveling / loudness equalizer) is the built
 - Works on **Windows 10 and 11**, on any playback device with audio enhancements — including USB speakers/headphones that the **Realtek Audio Console** and other vendor tools ignore
 - Applies **live** to playing audio — no audio-service restart, no admin prompt
 - Tiny (~400 KB), **no runtime required**, fully **offline** (no network, no data collection), open source
-- Available on the **Microsoft Store** (search "Loudness Equalization Toggle") for a signed one-click install, or build from source below
+- **[Get it on the Microsoft Store](https://apps.microsoft.com/detail/9P5P88XR7NB8?cid=github-readme)** for a signed one-click install, or build from source below
 
 ## Usage
 
