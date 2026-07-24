@@ -14,6 +14,11 @@ Loudness Equalization (a.k.a. volume leveling / loudness equalizer) is the built
 - Tiny (~400 KB), **no runtime required**, fully **offline** (no network, no data collection), open source
 - **[Get it on the Microsoft Store](https://apps.microsoft.com/detail/9P5P88XR7NB8?cid=github-readme)** for a signed one-click install, or build from source below
 
+> **Just looking for the setting?** See
+> **[Where did Loudness Equalization go in Windows 11 (and how to get it back)](docs/windows-11-loudness-equalization.md)**
+> — why the Enhancements tab disappeared, how to check whether your device supports it, and
+> every way to switch it back on (including by hand, without this tool).
+
 ## Usage
 
 ```
