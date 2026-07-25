@@ -60,6 +60,9 @@ pub const BASS_BOOST_FREQ_VALUE: &str = "{61e8acb9-f04f-4f40-a65f-8f49fab3ba10},
 pub const BASS_BOOST_LEVEL_VALUE: &str = "{ae7f0b2a-96fc-493a-9247-a019f1f701e1},3";
 /// Virtual Surround enable flag; VT_I4, on=4 off=0 (FxProperties).
 pub const VIRTUAL_SURROUND_VALUE: &str = "{1b5c2483-0839-4523-ba87-95f89d27bd8c},3";
+/// PKEY_AudioEndpoint_FormFactor (Properties): 1=Speakers, 3=Headphones,
+/// 5=Headset, 9=HDMI, etc. Used to tell whether Virtual Surround applies.
+pub const FORM_FACTOR_VALUE: &str = "{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},0";
 
 /// The Loudness Equalization enable flag as a PROPERTYKEY (same property as
 /// LOUDNESS_VALUE, for the property-store paths).
@@ -601,6 +604,24 @@ pub fn read_bass_boost_level(guid: &str) -> Option<i32> {
 /// Virtual Surround on/off (enable flag != 0). None if never set.
 pub fn read_virtual_surround(guid: &str) -> Option<bool> {
     read_fx_i32(guid, VIRTUAL_SURROUND_VALUE).map(|v| v != 0)
+}
+
+/// The endpoint's form factor (Speakers=1, Headphones=3, Headset=5, …), read
+/// from the device Properties store. None if absent.
+pub fn read_form_factor(guid: &str) -> Option<i32> {
+    let props = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey_with_flags(format!(r"{RENDER_PATH}\{guid}\Properties"), KEY_READ)
+        .ok()?;
+    parse_i32_value(&props.get_raw_value(FORM_FACTOR_VALUE).ok()?)
+}
+
+/// Whether Virtual Surround applies to this device. It's a speaker effect;
+/// headphone/headset endpoints expose "Headphone Virtualization" instead (a
+/// different effect loudeq doesn't control yet), so the toggle would be an
+/// inert no-op there. Unknown form factor → assume available (fail open, so a
+/// device that just doesn't report one isn't wrongly blocked).
+pub fn virtual_surround_available(guid: &str) -> bool {
+    !matches!(read_form_factor(guid), Some(3) | Some(5))
 }
 
 /// Like parse_bool_value but returns the raw i32/u32 payload instead of

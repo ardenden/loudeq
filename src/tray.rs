@@ -257,7 +257,18 @@ unsafe fn show_menu(hwnd: HWND) {
     let surround_on = dev.as_ref().and_then(|d| read_virtual_surround(&d.guid)) == Some(true);
     let checked = |on: bool| if on { MF_STRING | MF_CHECKED } else { MF_STRING };
     let _ = AppendMenuW(menu, checked(bass_on), IDM_BASS, w!("Bass Boost"));
-    let _ = AppendMenuW(menu, checked(surround_on), IDM_SURROUND, w!("Virtual Surround"));
+    // Virtual Surround is a speaker effect — greyed out on headphone/headset
+    // devices, which expose Headphone Virtualization (not toggled here) instead.
+    let surround_available = dev
+        .as_ref()
+        .map(|d| virtual_surround_available(&d.guid))
+        .unwrap_or(true);
+    let surround_flags = if surround_available {
+        checked(surround_on)
+    } else {
+        MF_STRING | MF_GRAYED
+    };
+    let _ = AppendMenuW(menu, surround_flags, IDM_SURROUND, w!("Virtual Surround"));
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
 
     let autostart_flags = if autostart_enabled() {

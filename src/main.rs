@@ -331,16 +331,32 @@ fn run(opts: &Options) -> Result<(), String> {
         Action::Surround(op) => {
             let dev = resolve_target(&devices, opts.device_filter.as_deref())?;
             let inst = fx_instance_guids(&dev.guid);
+            let available = virtual_surround_available(&dev.guid);
             match op {
                 FxOp::Status => {
-                    println!(
-                        "{}: Virtual Surround is {}",
-                        dev.name,
-                        state_text(read_virtual_surround(&dev.guid))
-                    );
+                    if available {
+                        println!(
+                            "{}: Virtual Surround is {}",
+                            dev.name,
+                            state_text(read_virtual_surround(&dev.guid))
+                        );
+                    } else {
+                        println!(
+                            "{}: Virtual Surround is not available (headphones use \
+                             Headphone Virtualization, which loudeq can't toggle yet)",
+                            dev.name
+                        );
+                    }
                     Ok(())
                 }
                 FxOp::On | FxOp::Off | FxOp::Toggle => {
+                    if !available {
+                        return Err(format!(
+                            "Virtual Surround isn't available on {} — it's a speaker effect; \
+                             headphones/headsets use Headphone Virtualization instead",
+                            dev.name
+                        ));
+                    }
                     let desired = match op {
                         FxOp::On => true,
                         FxOp::Off => false,
