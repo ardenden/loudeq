@@ -14,7 +14,7 @@ and use it as the display name — additional name reservations are free.)
 ---
 
 **Short description:**
-Toggle Windows Loudness Equalization in one click — volume leveling from the tray, a taskbar button, or the command line.
+Toggle Windows Loudness Equalization, Bass Boost, and Virtual Surround in one click — from the tray, a taskbar button, or the command line.
 
 **Description:**
 
@@ -27,13 +27,14 @@ LoudEQ makes it one click:
 - **Tray icon shows the state at a glance** — green dot = ON, gray ring = OFF
 - **Click to toggle** — from the tray icon or a pinned taskbar button
 - **Applies live** to playing audio — no restart, no admin prompt, no interruption
+- **Also toggles Bass Boost and Virtual Surround** — the other buried Windows audio enhancements, with the same one-click treatment
 - **Works on any playback device** with Windows audio enhancements — including USB speakers and headphones that the Realtek Audio Console and vendor tools ignore
 - **Start with Windows** (optional)
-- **Command line included** — `loudeq on / off / toggle / status / list`
+- **Command line included** — `loudeq on / off / toggle / status / list`, plus `loudeq bass` and `loudeq surround`
 
 Free, open source, and completely offline — it never connects to the internet and collects no data. Source code: https://github.com/ardenden/loudeq
 
-Keywords people search that this covers: loudness equalization, loudness equalizer, volume leveling, volume normalizer, equalize volume, night mode audio, quiet dialogue boost.
+Keywords people search that this covers: loudness equalization, loudness equalizer, volume leveling, volume normalizer, equalize volume, night mode audio, quiet dialogue boost, bass boost, virtual surround, audio enhancements.
 
 **Category:** Utilities & tools
 
