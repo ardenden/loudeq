@@ -44,6 +44,17 @@ Keywords people search that this covers: loudness equalization, loudness equaliz
 
 **Pricing:** Free
 
+**Search terms** (Partner Center → Store listing → Search terms; max 7 unique, ≤30 chars each — hidden keywords for phrases NOT already in the display name/description):
+- bass booster
+- enable bass boost
+- bass enhancer
+- virtual surround sound
+- surround sound toggle
+- audio enhancements
+- sound enhancer
+
+⚠️ Keywords must **not contain product titles you don't publish** — "Windows" / "Windows 11" (and brand names like Realtek, Dolby) get **rejected in certification**, even though Partner Center's UI lets you type them. Keep search terms generic; the "Windows / loudness equalization" framing belongs in the display name + description (prose isn't subject to this rule).
+
 ---
 
 ## Screenshots (biggest visual conversion lever — aim for 3)
