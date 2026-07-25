@@ -147,10 +147,14 @@ A few people find it won't stay enabled. Usual culprits:
 
 ## Related settings people look for
 
-- **Bass Boost / Virtual Surround / Room Correction** — these were also on the old
-  Enhancements tab, but unlike Loudness Equalization they have **no portable setting**: they're
-  either vendor-specific or not exposed at all. Your manufacturer's audio app is genuinely the
-  only route for these.
+- **Bass Boost / Virtual Surround** — these were also on the old Enhancements tab. On devices
+  using the **generic Microsoft audio driver** (Provider: Microsoft), they're standard Windows
+  audio effects with the same portable settings everywhere, so a tool can toggle them just like
+  Loudness Equalization — [loudeq](https://github.com/ardenden/loudeq) does, via `loudeq bass`
+  and `loudeq surround`. On devices with a **vendor** driver (Realtek, etc.) they're
+  vendor-specific, and your manufacturer's audio app is the only route.
+- **Room Correction** — also on that tab, but it needs a microphone-calibration step, so there's
+  no simple on/off; the manufacturer's app (or the classic tab, if you still have it) is the way.
 - **Mono audio** — *Settings → Accessibility → Audio → Mono audio*. Still fully supported and
   easy to reach.
 - **Release time** — an undocumented Loudness Equalization parameter (roughly, how quickly the

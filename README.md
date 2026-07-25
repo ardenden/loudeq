@@ -27,6 +27,12 @@ loudeq on           # enable
 loudeq off          # disable
 loudeq status       # show current state
 loudeq list         # list active playback devices (+ state)
+
+loudeq bass on|off|status   # toggle Bass Boost
+loudeq bass freq 200        # Bass Boost cutoff frequency (50-600 Hz)
+loudeq bass level 12        # Bass Boost level (3,6,9,12,15,18,21,24 dB)
+loudeq surround on|off      # toggle Virtual Surround
+
 loudeq setup        # only needed if the fallback path asks for UAC (see below)
 
 Options:
@@ -34,6 +40,15 @@ Options:
   --no-restart          fallback path only: write the setting but don't restart
                         the audio service
 ```
+
+### Bass Boost & Virtual Surround
+
+On devices using the **generic Microsoft audio driver** (most USB speakers/headsets and any
+device without a vendor driver), the old Enhancements-tab **Bass Boost** and **Virtual Surround**
+effects are standard Windows audio effects with the same portable settings on every such device —
+so loudeq toggles them live too, exactly like Loudness Equalization, no admin and no vendor app.
+They don't apply on devices with a vendor driver (Realtek, etc.), where those effects are
+vendor-specific. The tray app's right-click menu has toggles for both as well.
 
 Changes are applied **live** through the audio policy service — same as clicking Apply in the Sound control panel: no admin rights, no UAC, no audio interruption.
 
@@ -71,7 +86,7 @@ The exe lands in `target\release\loudeq.exe`. Copy it anywhere and/or make a sho
 
 - **green dot** = Loudness EQ ON, **gray ring** = OFF
 - **left-click** the icon = toggle (with a toast notification)
-- **right-click** = menu: status, Toggle, Start with Windows, Exit
+- **right-click** = menu: status, Toggle, Bass Boost, Virtual Surround, Start with Windows, Exit
 - launching the exe again while it's running relays a **toggle** to the running instance — so a shortcut **pinned to the taskbar** acts as a toggle button: every click flips the setting and the tray icon updates.
 
 To pin it: find **LoudEQ** in the Start Menu, right-click → Pin to taskbar. Drag the tray icon out of the overflow flyout onto the taskbar clock area to keep it always visible. Enable *Start with Windows* from the right-click menu to have it from logon.

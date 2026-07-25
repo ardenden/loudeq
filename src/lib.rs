@@ -49,6 +49,18 @@ pub const ENDPOINT_NAME_VALUE: &str = "{a45c254e-df1c-4efd-8020-67d146a850e0},2"
 /// PKEY_DeviceInterface_FriendlyName, e.g. "Philips SPA6109" (Properties).
 pub const DEVICE_DESC_VALUE: &str = "{b3f8fa53-0004-438e-9003-51a46e139bfc},6";
 
+// Microsoft-sysfx enhancement keys (the same on every generic-driver device,
+// Provider: Microsoft) — recovered by diffing the classic Enhancements tab.
+// Unlike Loudness EQ's VT_BOOL, these are VT_I4 with effect-specific values.
+/// Bass Boost enable flag; VT_I4, on=2 off=0 (FxProperties).
+pub const BASS_BOOST_VALUE: &str = "{1864a4e0-efc1-45e6-a675-5786cbf3b9f0},4";
+/// Bass Boost cutoff frequency in raw Hz; VT_I4 (dialog offers 50-600, step 25).
+pub const BASS_BOOST_FREQ_VALUE: &str = "{61e8acb9-f04f-4f40-a65f-8f49fab3ba10},4";
+/// Bass Boost level as an index; VT_I4, dB = index*3 + 3 (i.e. 3-24 dB).
+pub const BASS_BOOST_LEVEL_VALUE: &str = "{ae7f0b2a-96fc-493a-9247-a019f1f701e1},3";
+/// Virtual Surround enable flag; VT_I4, on=4 off=0 (FxProperties).
+pub const VIRTUAL_SURROUND_VALUE: &str = "{1b5c2483-0839-4523-ba87-95f89d27bd8c},3";
+
 /// The Loudness Equalization enable flag as a PROPERTYKEY (same property as
 /// LOUDNESS_VALUE, for the property-store paths).
 const PKEY_LOUDNESS_EQ: PROPERTYKEY = PROPERTYKEY {
@@ -313,6 +325,125 @@ pub fn apply_loudness_live(
     }
 }
 
+/// Set an arbitrary VT_I4 FX property, using the same dual-write path as
+/// Loudness EQ (flat value via the audio policy service + each effect
+/// instance's per-`\User` store, which is what the Win11 engine actually
+/// honours). Applied live, no admin. Returns the number of instance stores
+/// written.
+///
+/// Used for the Microsoft-sysfx enhancement enable flags, which — unlike
+/// Loudness EQ's VT_BOOL — are VT_I4 with an effect-specific "on" value.
+/// Keys were recovered by diffing the classic Enhancements tab (Provider:
+/// Microsoft, so the same on every generic-driver device):
+///   Bass Boost        `{1864a4e0-efc1-45e6-a675-5786cbf3b9f0}`,4  on=2 off=0
+///   Virtual Surround  `{1b5c2483-0839-4523-ba87-95f89d27bd8c}`,3  on=4 off=0
+pub fn set_fx_i32(
+    full_id: &str,
+    fmtid: u128,
+    pid: u32,
+    value: i32,
+    instances: &[String],
+) -> windows::core::Result<usize> {
+    let key = PROPERTYKEY {
+        fmtid: GUID::from_u128(fmtid),
+        pid,
+    };
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let policy: IPolicyConfig = CoCreateInstance(&CPOLICY_CONFIG_CLIENT, None, CLSCTX_ALL)?;
+        let idw: Vec<u16> = full_id.encode_utf16().chain(Some(0)).collect();
+        let id = PCWSTR(idw.as_ptr());
+
+        let mut pv = propvariant_i32(value);
+        policy.set_property_value(id, BOOL(1), &key, &mut pv).ok()?;
+
+        let enumerator: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)?;
+        let device = enumerator.GetDevice(id)?;
+        let mut wrote = 0;
+        for inst in instances {
+            let inst_guid = GUID::from(inst.trim_matches(|c| c == '{' || c == '}'));
+            let params = propvariant_clsid(&inst_guid);
+            let Ok(store) =
+                device.Activate::<IAudioSystemEffectsPropertyStore>(CLSCTX_ALL, Some(&params))
+            else {
+                continue;
+            };
+            let Ok(user) = store.OpenUserPropertyStore(STGM_READWRITE.0) else {
+                continue;
+            };
+            let pv = propvariant_i32(value);
+            if user.SetValue(&key, &pv).is_ok() {
+                let _ = user.Commit();
+                wrote += 1;
+            }
+        }
+        Ok(wrote)
+    }
+}
+
+/// Bass Boost on/off — writes the enable flag (on=2, off=0), applied live.
+pub fn set_bass_boost(
+    full_id: &str,
+    enable: bool,
+    instances: &[String],
+) -> windows::core::Result<usize> {
+    set_fx_i32(
+        full_id,
+        0x1864a4e0_efc1_45e6_a675_5786cbf3b9f0,
+        4,
+        if enable { 2 } else { 0 },
+        instances,
+    )
+}
+
+/// Bass Boost cutoff frequency in Hz (dialog range 50-600, in 25 Hz steps;
+/// stored as the raw Hz value).
+pub fn set_bass_boost_freq(
+    full_id: &str,
+    hz: i32,
+    instances: &[String],
+) -> windows::core::Result<usize> {
+    set_fx_i32(
+        full_id,
+        0x61e8acb9_f04f_4f40_a65f_8f49fab3ba10,
+        4,
+        hz,
+        instances,
+    )
+}
+
+/// Bass Boost level in dB (3, 6, … 24). Stored as an index: `dB/3 - 1`
+/// (verified against the dropdown: 12 dB→3, 24 dB→7).
+pub fn set_bass_boost_level(
+    full_id: &str,
+    db: i32,
+    instances: &[String],
+) -> windows::core::Result<usize> {
+    set_fx_i32(
+        full_id,
+        0xae7f0b2a_96fc_493a_9247_a019f1f701e1,
+        3,
+        db / 3 - 1,
+        instances,
+    )
+}
+
+/// Virtual Surround on/off — writes the enable flag (on=4, off=0).
+pub fn set_virtual_surround(
+    full_id: &str,
+    enable: bool,
+    instances: &[String],
+) -> windows::core::Result<usize> {
+    set_fx_i32(
+        full_id,
+        0x1b5c2483_0839_4523_ba87_95f89d27bd8c,
+        3,
+        if enable { 4 } else { 0 },
+        instances,
+    )
+}
+
 /// Set the Loudness EQ release-time parameter (valid range 2-7; meaning
 /// undocumented by Microsoft, taken from LEQControlPanel's exposed range).
 /// Same dual-write approach as apply_loudness_live (flat value + per-instance
@@ -428,23 +559,48 @@ pub fn read_mono_audio() -> bool {
         .unwrap_or(false)
 }
 
-/// Read the current release-time value (2-7), preferring the per-instance
-/// store like read_loudness does, falling back to the flat value.
-pub fn read_release_time(guid: &str) -> Option<i32> {
+/// Read a VT_I4 FX property by its "{fmtid},pid" value name, preferring the
+/// Win11 per-instance `\User` store (what the engine honors), then the flat
+/// value. None if the property isn't present on the device.
+pub fn read_fx_i32(guid: &str, value_name: &str) -> Option<i32> {
     let fx = RegKey::predef(HKEY_LOCAL_MACHINE)
         .open_subkey_with_flags(fx_properties_path(guid), KEY_READ)
         .ok()?;
-    let value_name = format!("{{9c00eeed-edce-4cd8-ae08-cb05e8ef57a0}},3");
     for inst in fx.enum_keys().flatten() {
         if let Ok(user) = fx.open_subkey_with_flags(format!(r"{inst}\User"), KEY_READ) {
-            if let Ok(rv) = user.get_raw_value(&value_name) {
+            if let Ok(rv) = user.get_raw_value(value_name) {
                 if let Some(v) = parse_i32_value(&rv) {
                     return Some(v);
                 }
             }
         }
     }
-    parse_i32_value(&fx.get_raw_value(&value_name).ok()?)
+    parse_i32_value(&fx.get_raw_value(value_name).ok()?)
+}
+
+/// Read the current release-time value (2-7).
+pub fn read_release_time(guid: &str) -> Option<i32> {
+    read_fx_i32(guid, "{9c00eeed-edce-4cd8-ae08-cb05e8ef57a0},3")
+}
+
+/// Bass Boost on/off (enable flag != 0). None if the device never set it.
+pub fn read_bass_boost(guid: &str) -> Option<bool> {
+    read_fx_i32(guid, BASS_BOOST_VALUE).map(|v| v != 0)
+}
+
+/// Bass Boost cutoff frequency in Hz, if set.
+pub fn read_bass_boost_freq(guid: &str) -> Option<i32> {
+    read_fx_i32(guid, BASS_BOOST_FREQ_VALUE)
+}
+
+/// Bass Boost level in dB (index*3 + 3), if set.
+pub fn read_bass_boost_level(guid: &str) -> Option<i32> {
+    read_fx_i32(guid, BASS_BOOST_LEVEL_VALUE).map(|idx| idx * 3 + 3)
+}
+
+/// Virtual Surround on/off (enable flag != 0). None if never set.
+pub fn read_virtual_surround(guid: &str) -> Option<bool> {
+    read_fx_i32(guid, VIRTUAL_SURROUND_VALUE).map(|v| v != 0)
 }
 
 /// Like parse_bool_value but returns the raw i32/u32 payload instead of

@@ -39,6 +39,8 @@ const WM_EXTERNAL_TOGGLE: u32 = WM_APP + 2;
 const IDM_TOGGLE: usize = 1;
 const IDM_AUTOSTART: usize = 2;
 const IDM_EXIT: usize = 3;
+const IDM_BASS: usize = 4;
+const IDM_SURROUND: usize = 5;
 const TRAY_UID: u32 = 1;
 const CLASS_NAME: PCWSTR = w!("LoudeqTrayWindow");
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -192,6 +194,47 @@ fn do_toggle(hwnd: HWND) {
     }
 }
 
+#[derive(Clone, Copy)]
+enum Fx {
+    Bass,
+    Surround,
+}
+
+/// Toggle Bass Boost or Virtual Surround on the default device (unlike the
+/// loudness state, these aren't reflected in the tray icon — just a balloon).
+fn toggle_fx(hwnd: HWND, fx: Fx) {
+    let Some(dev) = current_device() else {
+        balloon(hwnd, "loudeq", "No default playback device found.");
+        return;
+    };
+    let inst = fx_instance_guids(&dev.guid);
+    let (name, desired, result) = match fx {
+        Fx::Bass => {
+            let d = !read_bass_boost(&dev.guid).unwrap_or(false);
+            ("Bass Boost", d, set_bass_boost(&dev.full_id, d, &inst))
+        }
+        Fx::Surround => {
+            let d = !read_virtual_surround(&dev.guid).unwrap_or(false);
+            ("Virtual Surround", d, set_virtual_surround(&dev.full_id, d, &inst))
+        }
+    };
+    // An effect is inaudible while the master enhancements switch is off.
+    if desired && read_sysfx_disabled(&dev.guid) {
+        let _ = set_enhancements_enabled(&dev.full_id, true);
+    }
+    match result {
+        Ok(_) => {
+            let _ = reset_endpoint(&dev.full_id);
+            balloon(
+                hwnd,
+                &dev.name,
+                &format!("{name}: {}", if desired { "ON" } else { "OFF" }),
+            );
+        }
+        Err(e) => balloon(hwnd, "loudeq error", &format!("Could not apply: {e}")),
+    }
+}
+
 unsafe fn show_menu(hwnd: HWND) {
     let Ok(menu) = CreatePopupMenu() else { return };
 
@@ -207,6 +250,16 @@ unsafe fn show_menu(hwnd: HWND) {
     let _ = AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, PCWSTR(status_w.as_ptr()));
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
     let _ = AppendMenuW(menu, MF_STRING, IDM_TOGGLE, w!("Toggle"));
+
+    // Other Microsoft-sysfx enhancements, checked to show current state.
+    let dev = current_device();
+    let bass_on = dev.as_ref().and_then(|d| read_bass_boost(&d.guid)) == Some(true);
+    let surround_on = dev.as_ref().and_then(|d| read_virtual_surround(&d.guid)) == Some(true);
+    let checked = |on: bool| if on { MF_STRING | MF_CHECKED } else { MF_STRING };
+    let _ = AppendMenuW(menu, checked(bass_on), IDM_BASS, w!("Bass Boost"));
+    let _ = AppendMenuW(menu, checked(surround_on), IDM_SURROUND, w!("Virtual Surround"));
+    let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+
     let autostart_flags = if autostart_enabled() {
         MF_STRING | MF_CHECKED
     } else {
@@ -232,6 +285,8 @@ unsafe fn show_menu(hwnd: HWND) {
 
     match cmd.0 as usize {
         IDM_TOGGLE => do_toggle(hwnd),
+        IDM_BASS => toggle_fx(hwnd, Fx::Bass),
+        IDM_SURROUND => toggle_fx(hwnd, Fx::Surround),
         IDM_AUTOSTART => set_autostart(!autostart_enabled()),
         IDM_EXIT => {
             let mut nid = base_nid(hwnd);

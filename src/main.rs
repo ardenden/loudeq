@@ -45,6 +45,20 @@ enum Action {
     Setup,
     Meter,
     Tray,
+    Bass(FxOp),
+    Surround(FxOp),
+}
+
+/// Sub-operation for the Bass Boost / Virtual Surround commands. Freq/Level
+/// only apply to Bass Boost.
+#[derive(Clone, Copy, PartialEq)]
+enum FxOp {
+    Toggle,
+    On,
+    Off,
+    Status,
+    Freq(i32),
+    Level(i32),
 }
 
 struct Options {
@@ -113,6 +127,10 @@ fn parse_args() -> Result<Options, String> {
             "setup" => action = Some(Action::Setup),
             "meter" => action = Some(Action::Meter),
             "tray" => action = Some(Action::Tray),
+            "bass" | "bassboost" => action = Some(Action::Bass(parse_fx_op(&mut args, true)?)),
+            "surround" | "virtualsurround" => {
+                action = Some(Action::Surround(parse_fx_op(&mut args, false)?))
+            }
             "-d" | "--device" => {
                 device_filter =
                     Some(args.next().ok_or("--device requires a name (substring)")?);
@@ -137,6 +155,29 @@ fn parse_args() -> Result<Options, String> {
     })
 }
 
+/// Parse the sub-command after `bass`/`surround`. `allow_params` enables the
+/// bass-only `freq <Hz>` / `level <dB>` forms; no sub-word means toggle.
+fn parse_fx_op(
+    args: &mut impl Iterator<Item = String>,
+    allow_params: bool,
+) -> Result<FxOp, String> {
+    match args.next().as_deref().map(str::to_ascii_lowercase).as_deref() {
+        None | Some("toggle") => Ok(FxOp::Toggle),
+        Some("on") | Some("enable") => Ok(FxOp::On),
+        Some("off") | Some("disable") => Ok(FxOp::Off),
+        Some("status") => Ok(FxOp::Status),
+        Some("freq") | Some("frequency") if allow_params => {
+            let v = args.next().ok_or("`bass freq` needs a value in Hz (50-600)")?;
+            Ok(FxOp::Freq(v.parse().map_err(|_| format!("invalid frequency: {v}"))?))
+        }
+        Some("level") if allow_params => {
+            let v = args.next().ok_or("`bass level` needs a value in dB (3-24)")?;
+            Ok(FxOp::Level(v.parse().map_err(|_| format!("invalid level: {v}"))?))
+        }
+        Some(other) => Err(format!("unknown sub-command: {other}")),
+    }
+}
+
 fn print_usage() {
     println!(
         "loudeq — toggle Windows Loudness Equalization
@@ -150,6 +191,10 @@ COMMANDS:
     off         Disable it
     status      Show the current state
     list        List active playback devices and their state
+    bass [on|off|status]        Toggle Bass Boost (default: toggle)
+    bass freq <Hz>              Set Bass Boost cutoff frequency (50-600)
+    bass level <dB>             Set Bass Boost level (3,6,9,12,15,18,21,24)
+    surround [on|off|status]    Toggle Virtual Surround (default: toggle)
     meter       Sample the device's output level for 5 s (verify the effect)
     tray        Start the tray app (loudeq-tray.exe): icon shows the state,
                 click toggles
@@ -224,6 +269,96 @@ fn run(opts: &Options) -> Result<(), String> {
                 remove_service_grant()
             } else {
                 grant_service_rights()
+            }
+        }
+        Action::Bass(op) => {
+            let dev = resolve_target(&devices, opts.device_filter.as_deref())?;
+            let inst = fx_instance_guids(&dev.guid);
+            match op {
+                FxOp::Status => {
+                    println!(
+                        "{}: Bass Boost is {}",
+                        dev.name,
+                        state_text(read_bass_boost(&dev.guid))
+                    );
+                    if let (Some(f), Some(l)) =
+                        (read_bass_boost_freq(&dev.guid), read_bass_boost_level(&dev.guid))
+                    {
+                        println!("  frequency: {f} Hz   boost level: {l} dB");
+                    }
+                    Ok(())
+                }
+                FxOp::Freq(hz) => {
+                    if !(50..=600).contains(&hz) {
+                        return Err("frequency must be between 50 and 600 Hz".into());
+                    }
+                    apply_fx(set_bass_boost_freq(&dev.full_id, hz, &inst))?;
+                    let _ = reset_endpoint(&dev.full_id);
+                    say!("{}: Bass Boost frequency set to {hz} Hz", dev.name);
+                    bass_off_hint(&dev.guid);
+                    Ok(())
+                }
+                FxOp::Level(db) => {
+                    if !(3..=24).contains(&db) || db % 3 != 0 {
+                        return Err(
+                            "boost level must be one of 3, 6, 9, 12, 15, 18, 21, 24 (dB)".into()
+                        );
+                    }
+                    apply_fx(set_bass_boost_level(&dev.full_id, db, &inst))?;
+                    let _ = reset_endpoint(&dev.full_id);
+                    say!("{}: Bass Boost level set to {db} dB", dev.name);
+                    bass_off_hint(&dev.guid);
+                    Ok(())
+                }
+                FxOp::On | FxOp::Off | FxOp::Toggle => {
+                    let desired = match op {
+                        FxOp::On => true,
+                        FxOp::Off => false,
+                        _ => !read_bass_boost(&dev.guid).unwrap_or(false),
+                    };
+                    ensure_enhancements_on(dev, desired);
+                    apply_fx(set_bass_boost(&dev.full_id, desired, &inst))?;
+                    let note = reset_word(&dev.full_id);
+                    say!(
+                        "{}: Bass Boost set to {} ({note})",
+                        dev.name,
+                        state_text(Some(desired))
+                    );
+                    Ok(())
+                }
+            }
+        }
+        Action::Surround(op) => {
+            let dev = resolve_target(&devices, opts.device_filter.as_deref())?;
+            let inst = fx_instance_guids(&dev.guid);
+            match op {
+                FxOp::Status => {
+                    println!(
+                        "{}: Virtual Surround is {}",
+                        dev.name,
+                        state_text(read_virtual_surround(&dev.guid))
+                    );
+                    Ok(())
+                }
+                FxOp::On | FxOp::Off | FxOp::Toggle => {
+                    let desired = match op {
+                        FxOp::On => true,
+                        FxOp::Off => false,
+                        _ => !read_virtual_surround(&dev.guid).unwrap_or(false),
+                    };
+                    ensure_enhancements_on(dev, desired);
+                    apply_fx(set_virtual_surround(&dev.full_id, desired, &inst))?;
+                    let note = reset_word(&dev.full_id);
+                    say!(
+                        "{}: Virtual Surround set to {} ({note})",
+                        dev.name,
+                        state_text(Some(desired))
+                    );
+                    Ok(())
+                }
+                FxOp::Freq(_) | FxOp::Level(_) => {
+                    Err("Virtual Surround has no frequency/level settings".into())
+                }
             }
         }
         Action::Toggle | Action::On | Action::Off => {
@@ -316,6 +451,47 @@ fn run(opts: &Options) -> Result<(), String> {
                 Err(RestartError::Other(msg)) => Err(msg),
             }
         }
+    }
+}
+
+/// Map a core FX write result to a CLI error, logging the instance count.
+fn apply_fx(r: windows::core::Result<usize>) -> Result<(), String> {
+    match r {
+        Ok(wrote) => {
+            log_line(&format!("instance user stores written: {wrote}"));
+            Ok(())
+        }
+        Err(e) => Err(format!(
+            "live apply failed: {e}\n(check the master \"Audio enhancements\" switch is on, \
+             or set it from the Enhancements tab)"
+        )),
+    }
+}
+
+/// Reset the endpoint so playing streams pick up the new effect chain; return
+/// a note about whether it applied live.
+fn reset_word(full_id: &str) -> &'static str {
+    match reset_endpoint(full_id) {
+        Ok(()) => "applied live",
+        Err(_) => "applied — restart playback in running apps to hear it",
+    }
+}
+
+/// An effect does nothing while the master "Audio enhancements" switch is off.
+/// When enabling one, clear that switch first (same as the loudness path).
+fn ensure_enhancements_on(dev: &Device, desired: bool) {
+    if desired
+        && read_sysfx_disabled(&dev.guid)
+        && set_enhancements_enabled(&dev.full_id, true).is_ok()
+    {
+        say!("(also turned the master \"Audio enhancements\" switch back on)");
+    }
+}
+
+/// Hint after setting a bass parameter while Bass Boost itself is off.
+fn bass_off_hint(guid: &str) {
+    if read_bass_boost(guid) != Some(true) {
+        say!("(note: Bass Boost is currently OFF — run `loudeq bass on` to hear it)");
     }
 }
 
