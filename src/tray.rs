@@ -17,7 +17,7 @@ use windows::Win32::Foundation::{APPMODEL_ERROR_NO_PACKAGE, HWND, LPARAM, LRESUL
 use windows::Win32::Graphics::Gdi::{CreateBitmap, DeleteObject};
 use windows::Win32::Storage::Packaging::Appx::GetCurrentPackageFullName;
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Shell::ShellExecuteW;
+use windows::Win32::UI::Shell::{SetCurrentProcessExplicitAppUserModelID, ShellExecuteW};
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 use windows::Win32::UI::Shell::{
     Shell_NotifyIconW, NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE,
@@ -59,6 +59,15 @@ fn main() {
         if existing.0 != 0 {
             let _ = PostMessageW(existing, WM_EXTERNAL_TOGGLE, WPARAM(0), LPARAM(0));
             return;
+        }
+
+        // Windows attributes tray balloons to an app by its AppUserModelID and
+        // shows that name in the notification. Packaged (Store) builds get one
+        // from the package identity — never override that — but an unpackaged
+        // build has none, so Windows invents "NotifyIconGeneratedAumid_<hash>"
+        // and shows that instead.
+        if !is_packaged() {
+            let _ = SetCurrentProcessExplicitAppUserModelID(w!("LoudEQ"));
         }
 
         let Ok(hinstance) = GetModuleHandleW(None) else {
