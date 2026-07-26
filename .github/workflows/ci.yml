@@ -11,7 +11,14 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      # Build with the GNU toolchain — same as release/Store builds. MSVC exes
+      # link VCRUNTIME140.dll (VC++ Redistributable) and crash where it's
+      # absent; GNU links only system DLLs. The gnu toolchain bundles its own
+      # linker, so no extra mingw setup is needed on the runner.
+      - name: Install GNU Rust toolchain
+        run: |
+          rustup toolchain install stable-x86_64-pc-windows-gnu --profile minimal
+          rustup default stable-x86_64-pc-windows-gnu
       - name: Build
         run: cargo build --verbose
       - name: Run tests
