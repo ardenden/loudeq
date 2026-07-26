@@ -598,23 +598,48 @@ pub fn read_mono_audio() -> bool {
         .unwrap_or(false)
 }
 
-/// Read a VT_I4 FX property by its "{fmtid},pid" value name, preferring the
-/// Win11 per-instance `\User` store (what the engine honors), then the flat
-/// value. None if the property isn't present on the device.
-pub fn read_fx_i32(guid: &str, value_name: &str) -> Option<i32> {
+/// Read an FX property, preferring the Win11 per-instance `\User` stores (what
+/// the engine honors) and falling back to the flat value.
+///
+/// A device usually has several effect instances, and they can disagree: we
+/// write every instance, but the Enhancements dialog writes only the one its
+/// APO owns. Taking the first match then reported a stale value for anything
+/// changed outside loudeq — so pick the **most recently written** instance
+/// store, which is the one whose change came last whoever made it.
+fn read_fx_raw(guid: &str, value_name: &str) -> Option<RegValue> {
     let fx = RegKey::predef(HKEY_LOCAL_MACHINE)
         .open_subkey_with_flags(fx_properties_path(guid), KEY_READ)
         .ok()?;
+    let mut newest: Option<(u64, RegValue)> = None;
     for inst in fx.enum_keys().flatten() {
-        if let Ok(user) = fx.open_subkey_with_flags(format!(r"{inst}\User"), KEY_READ) {
-            if let Ok(rv) = user.get_raw_value(value_name) {
-                if let Some(v) = parse_i32_value(&rv) {
-                    return Some(v);
-                }
-            }
+        let Ok(user) = fx.open_subkey_with_flags(format!(r"{inst}\User"), KEY_READ) else {
+            continue;
+        };
+        let Ok(rv) = user.get_raw_value(value_name) else {
+            continue;
+        };
+        // FILETIME's two 32-bit halves, joined so they compare chronologically.
+        let written = user
+            .query_info()
+            .map(|i| {
+                ((i.last_write_time.dwHighDateTime as u64) << 32)
+                    | i.last_write_time.dwLowDateTime as u64
+            })
+            .unwrap_or(0);
+        if newest.as_ref().is_none_or(|(t, _)| written > *t) {
+            newest = Some((written, rv));
         }
     }
-    parse_i32_value(&fx.get_raw_value(value_name).ok()?)
+    match newest {
+        Some((_, rv)) => Some(rv),
+        None => fx.get_raw_value(value_name).ok(),
+    }
+}
+
+/// Read a VT_I4 FX property by its "{fmtid},pid" value name. None if the
+/// property isn't present on the device.
+pub fn read_fx_i32(guid: &str, value_name: &str) -> Option<i32> {
+    parse_i32_value(&read_fx_raw(guid, value_name)?)
 }
 
 /// Read the current release-time value (2-7).
@@ -880,21 +905,7 @@ pub fn read_sysfx_disabled(guid: &str) -> bool {
 }
 
 pub fn read_loudness(guid: &str) -> Option<bool> {
-    let fx = RegKey::predef(HKEY_LOCAL_MACHINE)
-        .open_subkey_with_flags(fx_properties_path(guid), KEY_READ)
-        .ok()?;
-    // Prefer the Win11 per-instance user store — it's what the effects engine
-    // and the Enhancements dialog actually honor.
-    for inst in fx.enum_keys().flatten() {
-        if let Ok(user) = fx.open_subkey_with_flags(format!(r"{inst}\User"), KEY_READ) {
-            if let Ok(rv) = user.get_raw_value(LOUDNESS_VALUE) {
-                if let Some(b) = parse_bool_value(&rv) {
-                    return Some(b);
-                }
-            }
-        }
-    }
-    parse_bool_value(&fx.get_raw_value(LOUDNESS_VALUE).ok()?)
+    parse_bool_value(&read_fx_raw(guid, LOUDNESS_VALUE)?)
 }
 
 /// Values in the MMDevice property stores are either native registry types or
