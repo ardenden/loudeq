@@ -251,24 +251,27 @@ fn toggle_fx(hwnd: HWND, fx: Fx) {
 unsafe fn show_menu(hwnd: HWND) {
     let Ok(menu) = CreatePopupMenu() else { return };
 
+    // Header names the device the toggles below apply to; the effects then all
+    // read the same way, as checked items.
     let state = current_state();
-    let status = format!(
-        "Loudness EQ: {}{}",
-        state_text(state),
-        current_device()
-            .map(|d| format!(" — {}", d.name))
-            .unwrap_or_default()
-    );
+    let dev = current_device();
+    let status = dev
+        .as_ref()
+        .map(|d| d.name.clone())
+        .unwrap_or_else(|| "No playback device".to_string());
     let status_w: Vec<u16> = status.encode_utf16().chain(Some(0)).collect();
     let _ = AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, PCWSTR(status_w.as_ptr()));
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-    let _ = AppendMenuW(menu, MF_STRING, IDM_TOGGLE, w!("Toggle"));
 
-    // Other Microsoft-sysfx enhancements, checked to show current state.
-    let dev = current_device();
     let bass_on = dev.as_ref().and_then(|d| read_bass_boost(&d.guid)) == Some(true);
     let surround_on = dev.as_ref().and_then(|d| read_virtual_surround(&d.guid)) == Some(true);
     let checked = |on: bool| if on { MF_STRING | MF_CHECKED } else { MF_STRING };
+    let _ = AppendMenuW(
+        menu,
+        checked(state == Some(true)),
+        IDM_TOGGLE,
+        w!("Loudness equalization"),
+    );
     let _ = AppendMenuW(menu, checked(bass_on), IDM_BASS, w!("Bass Boost"));
     // Same effect, but Windows names it per device type — match that.
     let surround_label: Vec<u16> = dev
