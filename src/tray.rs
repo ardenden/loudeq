@@ -407,7 +407,7 @@ fn base_nid(hwnd: HWND) -> NOTIFYICONDATAW {
 
 fn tip_text(state: bool) -> String {
     format!(
-        "Loudness EQ: {} — click to toggle",
+        "LoudEQ — Loudness equalization: {} — click to toggle",
         if state { "ON" } else { "OFF" }
     )
 }
