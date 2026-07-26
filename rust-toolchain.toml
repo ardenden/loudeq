@@ -1,0 +1,10 @@
+# Build with the GNU (MinGW) toolchain, NOT MSVC. The GNU target produces a
+# self-contained exe; the MSVC target dynamically links VCRUNTIME140.dll (the
+# Visual C++ Redistributable), which makes loudeq crash on any machine without
+# that runtime installed and fails Microsoft Store certification 10.2.4.1
+# (undisclosed dependency on non-integrated software).
+#
+# Pinned here so `cargo build` always uses GNU regardless of the machine's
+# default toolchain. Requires: rustup toolchain install stable-x86_64-pc-windows-gnu
+[toolchain]
+channel = "stable-x86_64-pc-windows-gnu"
