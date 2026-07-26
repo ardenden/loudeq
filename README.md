@@ -31,7 +31,8 @@ loudeq list         # list active playback devices (+ state)
 loudeq bass on|off|status   # toggle Bass Boost
 loudeq bass freq 200        # Bass Boost cutoff frequency (50-600 Hz)
 loudeq bass level 12        # Bass Boost level (3,6,9,12,15,18,21,24 dB)
-loudeq surround on|off      # toggle Virtual Surround
+loudeq surround on|off      # toggle Virtual Surround / Headphone Virtualization
+loudeq surround preset jazz # headphone room preset: studio, jazz or hall
 
 loudeq setup        # only needed if the fallback path asks for UAC (see below)
 
@@ -49,6 +50,11 @@ effects are standard Windows audio effects with the same portable settings on ev
 so loudeq toggles them live too, exactly like Loudness Equalization, no admin and no vendor app.
 They don't apply on devices with a vendor driver (Realtek, etc.), where those effects are
 vendor-specific. The tray app's right-click menu has toggles for both as well.
+
+**On headphones, Windows calls the same virtualization effect "Headphone Virtualization"** — it's
+one setting whose value selects the mode, so `loudeq surround` drives both, and the CLI and tray
+label it the way the Enhancements tab would for the device you're on. Headphones also get a room
+preset (Studio / Jazz Club / Concert Hall) via `loudeq surround preset`.
 
 Changes are applied **live** through the audio policy service — same as clicking Apply in the Sound control panel: no admin rights, no UAC, no audio interruption.
 

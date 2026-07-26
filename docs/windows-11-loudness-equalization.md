@@ -147,12 +147,15 @@ A few people find it won't stay enabled. Usual culprits:
 
 ## Related settings people look for
 
-- **Bass Boost / Virtual Surround** — these were also on the old Enhancements tab. On devices
-  using the **generic Microsoft audio driver** (Provider: Microsoft), they're standard Windows
-  audio effects with the same portable settings everywhere, so a tool can toggle them just like
-  Loudness Equalization — [loudeq](https://github.com/ardenden/loudeq) does, via `loudeq bass`
-  and `loudeq surround`. On devices with a **vendor** driver (Realtek, etc.) they're
-  vendor-specific, and your manufacturer's audio app is the only route.
+- **Bass Boost / Virtual Surround / Headphone Virtualization** — these were also on the old
+  Enhancements tab. On devices using the **generic Microsoft audio driver** (Provider: Microsoft),
+  they're standard Windows audio effects with the same portable settings everywhere, so a tool can
+  toggle them just like Loudness Equalization — [loudeq](https://github.com/ardenden/loudeq) does,
+  via `loudeq bass` and `loudeq surround`. "Virtual Surround" (speakers) and "Headphone
+  Virtualization" (headphones) are the *same* underlying setting, which is why you only ever see
+  one of the two depending on the device — on headphones it also has a room preset (Studio, Jazz
+  Club, Concert Hall). On devices with a **vendor** driver (Realtek, etc.) they're vendor-specific,
+  and your manufacturer's audio app is the only route.
 - **Room Correction** — also on that tab, but it needs a microphone-calibration step, so there's
   no simple on/off; the manufacturer's app (or the classic tab, if you still have it) is the way.
 - **Mono audio** — *Settings → Accessibility → Audio → Mono audio*. Still fully supported and

@@ -59,6 +59,8 @@ enum FxOp {
     Status,
     Freq(i32),
     Level(i32),
+    /// Headphone Virtualization room preset (index into HEADPHONE_PRESETS).
+    Preset(i32),
 }
 
 struct Options {
@@ -155,24 +157,34 @@ fn parse_args() -> Result<Options, String> {
     })
 }
 
-/// Parse the sub-command after `bass`/`surround`. `allow_params` enables the
-/// bass-only `freq <Hz>` / `level <dB>` forms; no sub-word means toggle.
-fn parse_fx_op(
-    args: &mut impl Iterator<Item = String>,
-    allow_params: bool,
-) -> Result<FxOp, String> {
+/// Parse the sub-command after `bass`/`surround`. `is_bass` selects which
+/// extra forms are accepted: `freq <Hz>` / `level <dB>` for bass, `preset
+/// <name>` for surround. No sub-word means toggle.
+fn parse_fx_op(args: &mut impl Iterator<Item = String>, is_bass: bool) -> Result<FxOp, String> {
     match args.next().as_deref().map(str::to_ascii_lowercase).as_deref() {
         None | Some("toggle") => Ok(FxOp::Toggle),
         Some("on") | Some("enable") => Ok(FxOp::On),
         Some("off") | Some("disable") => Ok(FxOp::Off),
         Some("status") => Ok(FxOp::Status),
-        Some("freq") | Some("frequency") if allow_params => {
+        Some("freq") | Some("frequency") if is_bass => {
             let v = args.next().ok_or("`bass freq` needs a value in Hz (50-600)")?;
             Ok(FxOp::Freq(v.parse().map_err(|_| format!("invalid frequency: {v}"))?))
         }
-        Some("level") if allow_params => {
+        Some("level") if is_bass => {
             let v = args.next().ok_or("`bass level` needs a value in dB (3-24)")?;
             Ok(FxOp::Level(v.parse().map_err(|_| format!("invalid level: {v}"))?))
+        }
+        Some("preset") if !is_bass => {
+            let v = args
+                .next()
+                .ok_or("`surround preset` needs a name: studio, jazz or hall")?;
+            let preset = match v.to_ascii_lowercase().replace([' ', '-', '_'], "").as_str() {
+                "studio" | "0" => 0,
+                "jazz" | "jazzclub" | "1" => 1,
+                "hall" | "concerthall" | "concert" | "2" => 2,
+                _ => return Err(format!("unknown preset: {v} (use studio, jazz or hall)")),
+            };
+            Ok(FxOp::Preset(preset))
         }
         Some(other) => Err(format!("unknown sub-command: {other}")),
     }
@@ -194,7 +206,9 @@ COMMANDS:
     bass [on|off|status]        Toggle Bass Boost (default: toggle)
     bass freq <Hz>              Set Bass Boost cutoff frequency (50-600)
     bass level <dB>             Set Bass Boost level (3,6,9,12,15,18,21,24)
-    surround [on|off|status]    Toggle Virtual Surround (default: toggle)
+    surround [on|off|status]    Toggle Virtual Surround — called Headphone
+                                Virtualization on headphones (default: toggle)
+    surround preset <name>      Headphone room preset: studio, jazz or hall
     meter       Sample the device's output level for 5 s (verify the effect)
     tray        Start the tray app (loudeq-tray.exe): icon shows the state,
                 click toggles
@@ -310,6 +324,7 @@ fn run(opts: &Options) -> Result<(), String> {
                     bass_off_hint(&dev.guid);
                     Ok(())
                 }
+                FxOp::Preset(_) => Err("Bass Boost has no presets".into()),
                 FxOp::On | FxOp::Off | FxOp::Toggle => {
                     let desired = match op {
                         FxOp::On => true,
@@ -331,49 +346,60 @@ fn run(opts: &Options) -> Result<(), String> {
         Action::Surround(op) => {
             let dev = resolve_target(&devices, opts.device_filter.as_deref())?;
             let inst = fx_instance_guids(&dev.guid);
-            let available = virtual_surround_available(&dev.guid);
+            // Windows calls the same effect "Virtual Surround" on speakers and
+            // "Headphone Virtualization" on headphones; follow its naming.
+            let label = virtualization_name(&dev.guid);
             match op {
                 FxOp::Status => {
-                    if available {
-                        println!(
-                            "{}: Virtual Surround is {}",
-                            dev.name,
-                            state_text(read_virtual_surround(&dev.guid))
-                        );
-                    } else {
-                        println!(
-                            "{}: Virtual Surround is not available (headphones use \
-                             Headphone Virtualization, which loudeq can't toggle yet)",
-                            dev.name
-                        );
+                    println!(
+                        "{}: {label} is {}",
+                        dev.name,
+                        state_text(read_virtual_surround(&dev.guid))
+                    );
+                    if is_headphones(&dev.guid) {
+                        if let Some(p) = read_headphone_preset(&dev.guid) {
+                            let name = HEADPHONE_PRESETS
+                                .get(p as usize)
+                                .copied()
+                                .unwrap_or("(unknown)");
+                            println!("  preset: {name}");
+                        }
                     }
                     Ok(())
                 }
                 FxOp::On | FxOp::Off | FxOp::Toggle => {
-                    if !available {
-                        return Err(format!(
-                            "Virtual Surround isn't available on {} — it's a speaker effect; \
-                             headphones/headsets use Headphone Virtualization instead",
-                            dev.name
-                        ));
-                    }
                     let desired = match op {
                         FxOp::On => true,
                         FxOp::Off => false,
                         _ => !read_virtual_surround(&dev.guid).unwrap_or(false),
                     };
                     ensure_enhancements_on(dev, desired);
-                    apply_fx(set_virtual_surround(&dev.full_id, desired, &inst))?;
+                    apply_fx(set_virtual_surround(&dev.full_id, &dev.guid, desired, &inst))?;
                     let note = reset_word(&dev.full_id);
                     say!(
-                        "{}: Virtual Surround set to {} ({note})",
+                        "{}: {label} set to {} ({note})",
                         dev.name,
                         state_text(Some(desired))
                     );
                     Ok(())
                 }
+                FxOp::Preset(p) => {
+                    if !is_headphones(&dev.guid) {
+                        return Err(format!(
+                            "presets only apply to headphones; {} is a speaker device",
+                            dev.name
+                        ));
+                    }
+                    apply_fx(set_headphone_preset(&dev.full_id, p, &inst))?;
+                    let _ = reset_endpoint(&dev.full_id);
+                    say!("{}: {label} preset set to {}", dev.name, HEADPHONE_PRESETS[p as usize]);
+                    if read_virtual_surround(&dev.guid) != Some(true) {
+                        say!("(note: {label} is currently OFF — run `loudeq surround on` to hear it)");
+                    }
+                    Ok(())
+                }
                 FxOp::Freq(_) | FxOp::Level(_) => {
-                    Err("Virtual Surround has no frequency/level settings".into())
+                    Err(format!("{label} has no frequency/level settings"))
                 }
             }
         }

@@ -58,10 +58,21 @@ pub const BASS_BOOST_VALUE: &str = "{1864a4e0-efc1-45e6-a675-5786cbf3b9f0},4";
 pub const BASS_BOOST_FREQ_VALUE: &str = "{61e8acb9-f04f-4f40-a65f-8f49fab3ba10},4";
 /// Bass Boost level as an index; VT_I4, dB = index*3 + 3 (i.e. 3-24 dB).
 pub const BASS_BOOST_LEVEL_VALUE: &str = "{ae7f0b2a-96fc-493a-9247-a019f1f701e1},3";
-/// Virtual Surround enable flag; VT_I4, on=4 off=0 (FxProperties).
+/// Virtualization mode; VT_I4 (FxProperties). One property drives both the
+/// speaker and headphone forms of the effect — the value selects which, which
+/// is why the Enhancements tab labels it "Virtual Surround" on speakers and
+/// "Headphone Virtualization" on headphones. 0=off, 3=headphones, 4=speakers.
 pub const VIRTUAL_SURROUND_VALUE: &str = "{1b5c2483-0839-4523-ba87-95f89d27bd8c},3";
+const VIRT_OFF: i32 = 0;
+const VIRT_HEADPHONES: i32 = 3;
+const VIRT_SPEAKERS: i32 = 4;
+/// Headphone Virtualization room preset; VT_I4, 0=Studio, 1=Jazz Club,
+/// 2=Concert Hall. Only meaningful on headphone/headset endpoints.
+pub const HEADPHONE_PRESET_VALUE: &str = "{73ae880e-8258-4e57-b85f-7daa6b7d5ef0},3";
+/// The presets in dropdown order, indexed by the stored value.
+pub const HEADPHONE_PRESETS: [&str; 3] = ["Studio", "Jazz Club", "Concert Hall"];
 /// PKEY_AudioEndpoint_FormFactor (Properties): 1=Speakers, 3=Headphones,
-/// 5=Headset, 9=HDMI, etc. Used to tell whether Virtual Surround applies.
+/// 5=Headset, 9=HDMI, etc. Selects which virtualization mode to write.
 pub const FORM_FACTOR_VALUE: &str = "{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},0";
 
 /// The Loudness Equalization enable flag as a PROPERTYKEY (same property as
@@ -432,17 +443,42 @@ pub fn set_bass_boost_level(
     )
 }
 
-/// Virtual Surround on/off — writes the enable flag (on=4, off=0).
+/// Virtualization on/off, in the mode this endpoint expects: headphones and
+/// headsets take 3 ("Headphone Virtualization"), everything else 4 ("Virtual
+/// Surround"). Writing the wrong mode is silently inert — the effect stays off
+/// and the Enhancements tab shows the box unticked.
 pub fn set_virtual_surround(
     full_id: &str,
+    guid: &str,
     enable: bool,
     instances: &[String],
 ) -> windows::core::Result<usize> {
+    let mode = match (enable, is_headphones(guid)) {
+        (false, _) => VIRT_OFF,
+        (true, true) => VIRT_HEADPHONES,
+        (true, false) => VIRT_SPEAKERS,
+    };
     set_fx_i32(
         full_id,
         0x1b5c2483_0839_4523_ba87_95f89d27bd8c,
         3,
-        if enable { 4 } else { 0 },
+        mode,
+        instances,
+    )
+}
+
+/// Headphone Virtualization room preset (0=Studio, 1=Jazz Club, 2=Concert
+/// Hall). Only affects headphone/headset endpoints.
+pub fn set_headphone_preset(
+    full_id: &str,
+    preset: i32,
+    instances: &[String],
+) -> windows::core::Result<usize> {
+    set_fx_i32(
+        full_id,
+        0x73ae880e_8258_4e57_b85f_7daa6b7d5ef0,
+        3,
+        preset,
         instances,
     )
 }
@@ -615,13 +651,27 @@ pub fn read_form_factor(guid: &str) -> Option<i32> {
     parse_i32_value(&props.get_raw_value(FORM_FACTOR_VALUE).ok()?)
 }
 
-/// Whether Virtual Surround applies to this device. It's a speaker effect;
-/// headphone/headset endpoints expose "Headphone Virtualization" instead (a
-/// different effect loudeq doesn't control yet), so the toggle would be an
-/// inert no-op there. Unknown form factor → assume available (fail open, so a
-/// device that just doesn't report one isn't wrongly blocked).
-pub fn virtual_surround_available(guid: &str) -> bool {
-    !matches!(read_form_factor(guid), Some(3) | Some(5))
+/// Whether this endpoint is a headphone or headset. Decides which
+/// virtualization mode to write, what to call the effect, and whether the
+/// room preset applies.
+pub fn is_headphones(guid: &str) -> bool {
+    matches!(read_form_factor(guid), Some(3) | Some(5))
+}
+
+/// What Windows calls the virtualization effect on this device, so messages
+/// and menu labels match the Enhancements tab the user would otherwise see.
+pub fn virtualization_name(guid: &str) -> &'static str {
+    if is_headphones(guid) {
+        "Headphone Virtualization"
+    } else {
+        "Virtual Surround"
+    }
+}
+
+/// Headphone Virtualization room preset, if set (0=Studio, 1=Jazz Club,
+/// 2=Concert Hall).
+pub fn read_headphone_preset(guid: &str) -> Option<i32> {
+    read_fx_i32(guid, HEADPHONE_PRESET_VALUE)
 }
 
 /// Like parse_bool_value but returns the raw i32/u32 payload instead of

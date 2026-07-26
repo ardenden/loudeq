@@ -224,7 +224,11 @@ fn toggle_fx(hwnd: HWND, fx: Fx) {
         }
         Fx::Surround => {
             let d = !read_virtual_surround(&dev.guid).unwrap_or(false);
-            ("Virtual Surround", d, set_virtual_surround(&dev.full_id, d, &inst))
+            (
+                virtualization_name(&dev.guid),
+                d,
+                set_virtual_surround(&dev.full_id, &dev.guid, d, &inst),
+            )
         }
     };
     // An effect is inaudible while the master enhancements switch is off.
@@ -266,18 +270,20 @@ unsafe fn show_menu(hwnd: HWND) {
     let surround_on = dev.as_ref().and_then(|d| read_virtual_surround(&d.guid)) == Some(true);
     let checked = |on: bool| if on { MF_STRING | MF_CHECKED } else { MF_STRING };
     let _ = AppendMenuW(menu, checked(bass_on), IDM_BASS, w!("Bass Boost"));
-    // Virtual Surround is a speaker effect — greyed out on headphone/headset
-    // devices, which expose Headphone Virtualization (not toggled here) instead.
-    let surround_available = dev
+    // Same effect, but Windows names it per device type — match that.
+    let surround_label: Vec<u16> = dev
         .as_ref()
-        .map(|d| virtual_surround_available(&d.guid))
-        .unwrap_or(true);
-    let surround_flags = if surround_available {
-        checked(surround_on)
-    } else {
-        MF_STRING | MF_GRAYED
-    };
-    let _ = AppendMenuW(menu, surround_flags, IDM_SURROUND, w!("Virtual Surround"));
+        .map(|d| virtualization_name(&d.guid))
+        .unwrap_or("Virtual Surround")
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let _ = AppendMenuW(
+        menu,
+        checked(surround_on),
+        IDM_SURROUND,
+        PCWSTR(surround_label.as_ptr()),
+    );
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
 
     let autostart_flags = if autostart_enabled() {
