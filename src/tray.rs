@@ -173,7 +173,7 @@ fn current_state() -> Option<bool> {
 
 fn do_toggle(hwnd: HWND) {
     let Some(dev) = current_device() else {
-        balloon(hwnd, "loudeq", "No default playback device found.");
+        balloon(hwnd, "No playback device", "Connect one, or set a default in Sound settings.");
         return;
     };
     let desired = !read_loudness(&dev.guid).unwrap_or(false);
@@ -199,7 +199,7 @@ fn do_toggle(hwnd: HWND) {
                 },
             );
         }
-        Err(e) => balloon(hwnd, "loudeq error", &format!("Could not apply: {e}")),
+        Err(e) => balloon(hwnd, "Could not apply", &e.to_string()),
     }
 }
 
@@ -213,7 +213,7 @@ enum Fx {
 /// loudness state, these aren't reflected in the tray icon — just a balloon).
 fn toggle_fx(hwnd: HWND, fx: Fx) {
     let Some(dev) = current_device() else {
-        balloon(hwnd, "loudeq", "No default playback device found.");
+        balloon(hwnd, "No playback device", "Connect one, or set a default in Sound settings.");
         return;
     };
     let inst = fx_instance_guids(&dev.guid);
@@ -244,7 +244,7 @@ fn toggle_fx(hwnd: HWND, fx: Fx) {
                 &format!("{name}: {}", if desired { "ON" } else { "OFF" }),
             );
         }
-        Err(e) => balloon(hwnd, "loudeq error", &format!("Could not apply: {e}")),
+        Err(e) => balloon(hwnd, "Could not apply", &e.to_string()),
     }
 }
 
