@@ -84,6 +84,14 @@ const PKEY_LOUDNESS_EQ: PROPERTYKEY = PROPERTYKEY {
     fmtid: GUID::from_u128(0xfc52a749_4be9_4510_896e_966ba6525980),
     pid: 3,
 };
+/// Same property at the alternate PID some devices read their state from,
+/// mirroring what release time already does. Undocumented by Microsoft; both
+/// carry identical data. Writing it too is harmless where it's ignored and is
+/// the difference between working and silently doing nothing where it isn't.
+const PKEY_LOUDNESS_EQ_ALT: PROPERTYKEY = PROPERTYKEY {
+    fmtid: GUID::from_u128(0xfc52a749_4be9_4510_896e_966ba6525980),
+    pid: 1599,
+};
 /// PKEY_AudioEndpoint_Disable_SysFx as a PROPERTYKEY.
 const PKEY_DISABLE_SYSFX: PROPERTYKEY = PROPERTYKEY {
     fmtid: GUID::from_u128(0x1da5d803_d492_4edd_8c23_e0c0ffee7f0e),
@@ -314,6 +322,10 @@ pub fn apply_loudness_live(
         policy
             .set_property_value(id, BOOL(1), &PKEY_LOUDNESS_EQ, &mut pv)
             .ok()?;
+        // The alternate PID is best-effort: devices that ignore it are the
+        // common case, so a failure here mustn't fail the whole toggle.
+        let mut pv_alt = propvariant_bool(enable);
+        let _ = policy.set_property_value(id, BOOL(1), &PKEY_LOUDNESS_EQ_ALT, &mut pv_alt);
 
         // Per-instance user stores (Windows 11). Failures on individual
         // instances are fine — not every instance belongs to the sysfx APO.
@@ -334,6 +346,8 @@ pub fn apply_loudness_live(
             };
             let pv = propvariant_bool(enable);
             if user.SetValue(&PKEY_LOUDNESS_EQ, &pv).is_ok() {
+                let pv_alt = propvariant_bool(enable);
+                let _ = user.SetValue(&PKEY_LOUDNESS_EQ_ALT, &pv_alt);
                 let _ = user.Commit();
                 wrote += 1;
             }
