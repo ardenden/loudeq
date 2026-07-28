@@ -176,6 +176,11 @@ fn do_toggle(hwnd: HWND) {
         balloon(hwnd, "No playback device", "Connect one, or set a default in Sound settings.");
         return;
     };
+    // Say so rather than report a change that can't happen (see has_ms_effects).
+    if let Some(reason) = unsupported_reason(&dev.guid) {
+        balloon(hwnd, &dev.name, reason);
+        return;
+    }
     let desired = !read_loudness(&dev.guid).unwrap_or(false);
     match apply_loudness_live(
         &dev.full_id,
@@ -216,6 +221,10 @@ fn toggle_fx(hwnd: HWND, fx: Fx) {
         balloon(hwnd, "No playback device", "Connect one, or set a default in Sound settings.");
         return;
     };
+    if let Some(reason) = unsupported_reason(&dev.guid) {
+        balloon(hwnd, &dev.name, reason);
+        return;
+    }
     let inst = fx_instance_guids(&dev.guid);
     let (name, desired, result) = match fx {
         Fx::Bass => {
@@ -265,7 +274,14 @@ unsafe fn show_menu(hwnd: HWND) {
 
     let bass_on = dev.as_ref().and_then(|d| read_bass_boost(&d.guid)) == Some(true);
     let surround_on = dev.as_ref().and_then(|d| read_virtual_surround(&d.guid)) == Some(true);
-    let checked = |on: bool| if on { MF_STRING | MF_CHECKED } else { MF_STRING };
+    // On a device without Microsoft's effects these writes succeed silently and
+    // change nothing, so grey them rather than tick a box that does nothing.
+    let usable = dev.as_ref().map(|d| has_ms_effects(&d.guid)).unwrap_or(false);
+    let checked = |on: bool| match (usable, on) {
+        (false, _) => MF_STRING | MF_GRAYED,
+        (true, true) => MF_STRING | MF_CHECKED,
+        (true, false) => MF_STRING,
+    };
     let _ = AppendMenuW(
         menu,
         checked(state == Some(true)),

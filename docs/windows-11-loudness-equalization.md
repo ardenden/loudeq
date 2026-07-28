@@ -56,21 +56,35 @@ Then try enabling Loudness Equalization again.
 
 ## How to tell whether your device supports it at all
 
-Not every device can do this. Loudness Equalization is provided by the audio effects that
-ship with your device's driver; if a device has none, there's nothing to switch on and no
-tool can conjure it.
+Not every device can do this. Loudness Equalization comes from **Microsoft's audio
+effects**, which Windows loads for devices using its own generic audio driver. Two kinds of
+device don't get it, and no tool can conjure it for them:
 
-A quick check in the registry (read-only, nothing to change):
+- **Devices with a manufacturer's audio driver and app** — Realtek Audio Console, Nahimic,
+  Waves MaxxAudio, Dolby, Bang & Olufsen. These replace Microsoft's effects with their own,
+  so the equivalent setting lives in *that* app, not in Windows. Onboard/jack outputs on a
+  PC with the vendor software installed are usually in this group.
+- **Devices with no audio effects at all** — commonly Bluetooth *hands-free* (headset-mode)
+  endpoints and some HDMI outputs.
 
-```
-HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render
-```
+Everything else — USB headsets and speakers, Bluetooth devices in normal playback mode,
+HDMI/DisplayPort outputs, and onboard audio on machines with no vendor audio app installed
+— runs Microsoft's effects and can do Loudness Equalization.
 
-Each subkey is one playback endpoint. If a device has an **`FxProperties`** subkey, it
-supports audio effects. If it doesn't, that device can't do Loudness Equalization at all.
+The quickest way to tell, no registry needed:
 
-Bluetooth headsets and some HDMI outputs commonly have no effects. Most built-in speakers,
-USB speakers and headsets do.
+- **Settings → System → Sound →** click the device. If there's an **Audio enhancements**
+  dropdown, Microsoft's effects are available.
+- Or press <kbd>Win</kbd>+<kbd>R</kbd>, run `mmsys.cpl`, pick the device, click
+  **Properties**, and look for an **Enhancements** tab — that tab *is* Microsoft's effects UI.
+
+If neither appears but you *do* have a manufacturer's audio app, open that instead; the
+setting is usually called something like "loudness equalization", "volume levelling" or
+"smart volume" there.
+
+> Older versions of this page suggested checking for an `FxProperties` key in the registry.
+> That test doesn't work — essentially every playback endpoint has that key, including ones
+> with no effects at all — so use the two checks above instead.
 
 ## Ways to turn it back on
 

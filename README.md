@@ -9,7 +9,8 @@
 
 Loudness Equalization (a.k.a. volume leveling / loudness equalizer) is the built-in Windows audio enhancement that evens out volume differences: quiet dialogue gets louder, loud peaks get tamed. It's great for movies at night, quiet speech, or weak USB speakers — but Windows buries the checkbox in *Sound Control Panel → device Properties → Enhancements*, and it won't stay put on some devices. loudeq turns it into one click.
 
-- Works on **Windows 10 and 11**, on any playback device with audio enhancements — including USB speakers/headphones that the **Realtek Audio Console** and other vendor tools ignore
+- Works on **Windows 10 and 11**, on any device running Windows' own audio effects — USB headsets and speakers, Bluetooth, HDMI, and onboard audio with no vendor app installed. Exactly the devices the **Realtek Audio Console** and friends ignore
+- Devices managed by a **manufacturer's audio app** (Realtek Audio Console, Nahimic, Waves, Dolby) run that vendor's effects instead of Windows', so their settings live in that app — loudeq greys those out and tells you, rather than pretending to change something
 - Applies **live** to playing audio — no audio-service restart, no admin prompt
 - Tiny (~400 KB), **no runtime required**, fully **offline** (no network, no data collection), open source
 - **[Get it on the Microsoft Store](https://apps.microsoft.com/detail/9P5P88XR7NB8?cid=github-readme)** for a signed one-click install, or build from source below

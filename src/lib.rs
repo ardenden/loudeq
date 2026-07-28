@@ -74,6 +74,9 @@ pub const HEADPHONE_PRESETS: [&str; 3] = ["Studio", "Jazz Club", "Concert Hall"]
 /// PKEY_AudioEndpoint_FormFactor (Properties): 1=Speakers, 3=Headphones,
 /// 5=Headset, 9=HDMI, etc. Selects which virtualization mode to write.
 pub const FORM_FACTOR_VALUE: &str = "{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},0";
+/// PKEY_ItemNameDisplay on FxProperties — names the effect pack the endpoint
+/// loads, e.g. "Microsoft Audio Home Theater Effects".
+pub const FX_PACK_NAME_VALUE: &str = "{b725f130-47ef-101a-a5f1-02608c9eebac},10";
 
 /// The Loudness Equalization enable flag as a PROPERTYKEY (same property as
 /// LOUDNESS_VALUE, for the property-store paths).
@@ -674,6 +677,69 @@ pub fn read_form_factor(guid: &str) -> Option<i32> {
         .open_subkey_with_flags(format!(r"{RENDER_PATH}\{guid}\Properties"), KEY_READ)
         .ok()?;
     parse_i32_value(&props.get_raw_value(FORM_FACTOR_VALUE).ok()?)
+}
+
+/// Whether this endpoint runs Microsoft's system effects — the APO whose
+/// properties loudeq writes for Loudness EQ, Bass Boost and virtualization.
+///
+/// Writes to an endpoint without it *succeed and do nothing*: the value lands
+/// somewhere no effect reads, so the UI would happily tick a box that changes
+/// no audio. Checking for FxProperties is not enough to tell them apart —
+/// every endpoint has that key, including vendor-driver and Bluetooth
+/// hands-free ones. The effect-pack name is what actually distinguishes them.
+pub fn has_ms_effects(guid: &str) -> bool {
+    effects_provider(guid) == EffectsProvider::Microsoft
+}
+
+/// Which effects engine an endpoint runs — it decides both whether loudeq can
+/// drive it and what to tell the user when it can't.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffectsProvider {
+    /// Microsoft's system effects: the APO whose properties loudeq writes.
+    Microsoft,
+    /// A vendor APO (Realtek, Nahimic, Waves…). Real effects, but behind
+    /// proprietary properties that differ per vendor and per OEM build, so
+    /// only the vendor's own app can reach them.
+    Vendor,
+    /// No effects engine at all.
+    None,
+}
+
+pub fn effects_provider(guid: &str) -> EffectsProvider {
+    let Ok(fx) = RegKey::predef(HKEY_LOCAL_MACHINE)
+        .open_subkey_with_flags(fx_properties_path(guid), KEY_READ)
+    else {
+        return EffectsProvider::None;
+    };
+    let microsoft = fx
+        .get_value::<String, _>(FX_PACK_NAME_VALUE)
+        .map(|pack| pack.to_ascii_lowercase().contains("microsoft"))
+        .unwrap_or(false);
+    if microsoft {
+        return EffectsProvider::Microsoft;
+    }
+    // Every endpoint carries two effect instances Windows creates regardless;
+    // a third means an APO is genuinely loaded, just not Microsoft's.
+    if fx.enum_keys().flatten().count() > 2 {
+        EffectsProvider::Vendor
+    } else {
+        EffectsProvider::None
+    }
+}
+
+/// Why loudeq can't change effects on this device, phrased for the user.
+/// None when it can.
+pub fn unsupported_reason(guid: &str) -> Option<&'static str> {
+    match effects_provider(guid) {
+        EffectsProvider::Microsoft => None,
+        EffectsProvider::Vendor => Some(
+            "This device's audio effects are handled by its own audio app \
+             (e.g. Realtek Audio Console), not by Windows.",
+        ),
+        EffectsProvider::None => {
+            Some("This device has no Windows audio effects, so there's nothing to turn on.")
+        }
+    }
 }
 
 /// Whether this endpoint is a headphone or headset. Decides which
