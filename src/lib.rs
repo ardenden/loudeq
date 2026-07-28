@@ -10,7 +10,7 @@
 
 use std::io::{self, ErrorKind};
 
-use windows::core::{w, IUnknown, IUnknown_Vtbl, GUID, HRESULT, PCWSTR};
+use windows::core::{w, ComInterface, IUnknown, IUnknown_Vtbl, GUID, HRESULT, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{
     CloseHandle, BOOL, ERROR_ACCESS_DENIED, ERROR_SERVICE_ALREADY_RUNNING,
     ERROR_SERVICE_NOT_ACTIVE, HANDLE, VARIANT_BOOL,
@@ -35,7 +35,10 @@ use windows::Win32::System::Services::{
 };
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::Win32::System::Variant::{VT_BOOL, VT_CLSID, VT_UI4};
-use windows::Win32::UI::Shell::PropertiesSystem::PROPERTYKEY;
+use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, PROPERTYKEY};
+use windows::Win32::UI::Shell::{SHGetKnownFolderPath, IShellLinkW, ShellLink, FOLDERID_Programs, KNOWN_FOLDER_FLAG};
+use windows::Win32::System::Com::{IPersistFile, CLSCTX_INPROC_SERVER, STGM_READ};
+use std::os::windows::ffi::OsStrExt;
 use winreg::enums::{RegType, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ, KEY_SET_VALUE};
 use winreg::{RegKey, RegValue};
 
@@ -198,6 +201,96 @@ unsafe trait IPolicyConfigMono: IUnknown {
     unsafe fn slot20(&self) -> HRESULT;
     unsafe fn set_accessibility_mono_mix(&self, state: i32) -> HRESULT;
     unsafe fn get_accessibility_mono_mix(&self, state: *mut i32) -> HRESULT;
+}
+
+/// PKEY_AppUserModel_ID — the property that ties a Start Menu shortcut to an
+/// AppUserModelID. Not surfaced by windows-rs 0.52, but a stable documented
+/// SDK constant (propkey.h).
+const PKEY_APPUSERMODEL_ID: PROPERTYKEY = PROPERTYKEY {
+    fmtid: GUID::from_u128(0x9f4c2855_9f79_4b39_a8d0_e1d42de1d5f3),
+    pid: 5,
+};
+
+/// Give this process's AppUserModelID a Start Menu shortcut to hang off.
+///
+/// Setting the ID alone (SetCurrentProcessExplicitAppUserModelID) is enough
+/// for Windows to *accept* and *mute* an app's notifications, but not to
+/// *register* it — so the app never appears in Settings → Notifications and a
+/// user who turns its toasts off from the toast itself has no way to turn them
+/// back on. A shortcut carrying the same ID is what Windows treats as the
+/// registration; it also makes toasts show the shortcut's name and icon.
+///
+/// Only for unpackaged builds: a packaged app gets all of this from its
+/// package identity and must not have it overridden. No admin needed — the
+/// per-user Start Menu is user-writable. Rewrites the shortcut only when it's
+/// missing or carries a different ID, so normal launches do no disk work.
+pub fn register_app_shortcut(app_id: &str, display_name: &str) -> windows::core::Result<()> {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let programs = SHGetKnownFolderPath(&FOLDERID_Programs, KNOWN_FOLDER_FLAG(0), None)?;
+        let dir = programs.to_string().unwrap_or_default();
+        CoTaskMemFree(Some(programs.0 as _));
+        if dir.is_empty() {
+            return Err(windows::Win32::Foundation::E_FAIL.into());
+        }
+        let link_path = format!(r"{dir}\{display_name}.lnk");
+        let exe = std::env::current_exe()
+            .map_err(|_| windows::core::Error::from(windows::Win32::Foundation::E_FAIL))?;
+
+        if shortcut_app_id(&link_path).as_deref() == Some(app_id) {
+            return Ok(());
+        }
+
+        let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
+        let exew: Vec<u16> = exe.as_os_str().encode_wide().chain(Some(0)).collect();
+        link.SetPath(PCWSTR(exew.as_ptr()))?;
+        // The tray builds its icons at runtime, so point the shortcut at the
+        // exe and let Windows use whatever it has.
+        link.SetIconLocation(PCWSTR(exew.as_ptr()), 0)?;
+
+        let store: IPropertyStore = link.cast()?;
+        let mut idw: Vec<u16> = app_id.encode_utf16().chain(Some(0)).collect();
+        let pv = propvariant_lpwstr(&mut idw);
+        store.SetValue(&PKEY_APPUSERMODEL_ID, &pv)?;
+        store.Commit()?;
+
+        let file: IPersistFile = link.cast()?;
+        let linkw: Vec<u16> = link_path.encode_utf16().chain(Some(0)).collect();
+        file.Save(PCWSTR(linkw.as_ptr()), true)
+    }
+}
+
+/// The AppUserModelID already on a shortcut, if any.
+fn shortcut_app_id(link_path: &str) -> Option<String> {
+    unsafe {
+        let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).ok()?;
+        let file: IPersistFile = link.cast().ok()?;
+        let pathw: Vec<u16> = link_path.encode_utf16().chain(Some(0)).collect();
+        file.Load(PCWSTR(pathw.as_ptr()), STGM_READ).ok()?;
+        let store: IPropertyStore = link.cast().ok()?;
+        let pv = store.GetValue(&PKEY_APPUSERMODEL_ID).ok()?;
+        let s = pv.Anonymous.Anonymous.Anonymous.pwszVal;
+        (!s.is_null()).then(|| s.to_string().unwrap_or_default())
+    }
+}
+
+/// VT_LPWSTR pointing at a caller-owned buffer. Borrowed rather than
+/// CoTaskMem-allocated because the property store copies the string during
+/// SetValue and the buffer outlives that call.
+fn propvariant_lpwstr(buf: &mut [u16]) -> PROPVARIANT {
+    PROPVARIANT {
+        Anonymous: PROPVARIANT_0 {
+            Anonymous: std::mem::ManuallyDrop::new(PROPVARIANT_0_0 {
+                vt: windows::Win32::System::Variant::VT_LPWSTR,
+                wReserved1: 0,
+                wReserved2: 0,
+                wReserved3: 0,
+                Anonymous: PROPVARIANT_0_0_0 {
+                    pwszVal: PWSTR(buf.as_mut_ptr()),
+                },
+            }),
+        },
+    }
 }
 
 fn propvariant_bool(v: bool) -> PROPVARIANT {

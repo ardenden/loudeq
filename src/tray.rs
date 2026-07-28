@@ -68,6 +68,10 @@ fn main() {
         // and shows that instead.
         if !is_packaged() {
             let _ = SetCurrentProcessExplicitAppUserModelID(w!("LoudEQ"));
+            // ...and give that ID a Start Menu shortcut to hang off, or the app
+            // never appears in Settings > Notifications and its toasts can be
+            // switched off with no way to switch them back on.
+            let _ = register_app_shortcut("LoudEQ", "LoudEQ");
         }
 
         let Ok(hinstance) = GetModuleHandleW(None) else {
