@@ -34,7 +34,7 @@ LoudEQ makes it one click:
 
 Free, open source, and completely offline — it never connects to the internet and collects no data. Source code: https://github.com/ardenden/loudeq
 
-Keywords people search that this covers: loudness equalization, loudness equalizer, volume leveling, volume normalizer, equalize volume, night mode audio, quiet dialogue boost, bass boost, virtual surround, headphone virtualization, audio enhancements.
+Also known as volume leveling or volume normalizer. If you've been trying to equalize volume between quiet dialogue and loud action, or want a night mode that stops explosions waking the house, this is the Windows setting you're looking for.
 
 **Category:** Utilities & tools
 
