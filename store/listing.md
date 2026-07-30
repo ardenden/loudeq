@@ -28,9 +28,10 @@ LoudEQ makes it one click:
 - **Click to toggle** — from the tray icon or a pinned taskbar button
 - **Applies live** to playing audio — no restart, no admin prompt, no interruption
 - **Also toggles Bass Boost, Virtual Surround and Headphone Virtualization** — the other buried Windows audio enhancements, with the same one-click treatment. Headphones get room presets too (Studio, Jazz Club, Concert Hall)
+- **Stop Windows lowering your music during calls** — or mute other sounds entirely. The choice Windows buries in its Communications tab, one click away
 - **Works on any playback device** with Windows audio enhancements — including USB speakers and headphones that the Realtek Audio Console and vendor tools ignore
 - **Start with Windows** (optional)
-- **Command line included** — `loudeq on / off / toggle / status / list`, plus `loudeq bass` and `loudeq surround`
+- **Command line included** — `loudeq on / off / toggle / status / list`, plus `loudeq bass`, `loudeq surround` and `loudeq ducking`
 
 Free, open source, and completely offline — it never connects to the internet and collects no data. Source code: https://github.com/ardenden/loudeq
 
