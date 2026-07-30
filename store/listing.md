@@ -51,7 +51,7 @@ Also known as volume leveling or volume normalizer. If you've been trying to equ
 - virtual surround sound
 - surround sound toggle
 - audio enhancements
-- sound enhancer
+- disable audio ducking
 
 ⚠️ Keywords must **not contain product titles you don't publish** — "Windows" / "Windows 11" (and brand names like Realtek, Dolby) get **rejected in certification**, even though Partner Center's UI lets you type them. Keep search terms generic; the "Windows / loudness equalization" framing belongs in the display name + description (prose isn't subject to this rule).
 
