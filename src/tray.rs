@@ -28,7 +28,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     DestroyMenu, DispatchMessageW, FindWindowW, GetCursorPos, GetMessageW, PostMessageW,
     PostQuitMessage, RegisterClassW, RegisterWindowMessageW, SetForegroundWindow, SetTimer,
     TrackPopupMenu, TranslateMessage, HICON, ICONINFO, MF_CHECKED, MF_GRAYED, MF_SEPARATOR,
-    MF_STRING, MSG, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP,
+    MF_POPUP, MF_STRING, MSG, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON, WINDOW_EX_STYLE, WM_APP,
     WM_DESTROY, WM_LBUTTONUP, WM_RBUTTONUP, WM_TIMER, WNDCLASSW, WS_OVERLAPPED,
 };
 use winreg::enums::HKEY_CURRENT_USER;
@@ -41,6 +41,10 @@ const IDM_AUTOSTART: usize = 2;
 const IDM_EXIT: usize = 3;
 const IDM_BASS: usize = 4;
 const IDM_SURROUND: usize = 5;
+/// Dynamic range for the During-calls submenu: index into Ducking::ALL.
+const IDM_DUCKING_BASE: usize = 60;
+/// Headphone Virtualization submenu: +0 is Off, +1+i selects HEADPHONE_PRESETS[i].
+const IDM_VIRT_BASE: usize = 70;
 const TRAY_UID: u32 = 1;
 const CLASS_NAME: PCWSTR = w!("LoudeqTrayWindow");
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -216,6 +220,9 @@ fn do_toggle(hwnd: HWND) {
 enum Fx {
     Bass,
     Surround,
+    /// Switch virtualization off explicitly rather than toggling — the
+    /// headphone submenu's "Off" entry, where the other entries pick a room.
+    SurroundOff,
 }
 
 /// Toggle Bass Boost or Virtual Surround on the default device (unlike the
@@ -243,6 +250,11 @@ fn toggle_fx(hwnd: HWND, fx: Fx) {
                 set_virtual_surround(&dev.full_id, &dev.guid, d, &inst),
             )
         }
+        Fx::SurroundOff => (
+            virtualization_name(&dev.guid),
+            false,
+            set_virtual_surround(&dev.full_id, &dev.guid, false, &inst),
+        ),
     };
     // An effect is inaudible while the master enhancements switch is off.
     if desired && read_sysfx_disabled(&dev.guid) {
@@ -259,6 +271,39 @@ fn toggle_fx(hwnd: HWND, fx: Fx) {
         }
         Err(e) => balloon(hwnd, "Could not apply", &e.to_string()),
     }
+}
+
+/// Pick a Headphone Virtualization room. Choosing a room is a request to hear
+/// it, so this switches the effect on as well rather than quietly setting a
+/// preset that does nothing.
+fn set_preset(hwnd: HWND, preset: i32) {
+    let Some(dev) = current_device() else { return };
+    let inst = fx_instance_guids(&dev.guid);
+    if let Err(e) = set_headphone_preset(&dev.full_id, preset, &inst) {
+        balloon(hwnd, "Could not set the room preset", &e.to_string());
+        return;
+    }
+    let was_on = read_virtual_surround(&dev.guid) == Some(true);
+    if !was_on {
+        if read_sysfx_disabled(&dev.guid) {
+            let _ = set_enhancements_enabled(&dev.full_id, true);
+        }
+        let _ = set_virtual_surround(&dev.full_id, &dev.guid, true, &inst);
+    }
+    let _ = reset_endpoint(&dev.full_id);
+    let name = HEADPHONE_PRESETS
+        .get(preset as usize)
+        .copied()
+        .unwrap_or_default();
+    balloon(
+        hwnd,
+        &dev.name,
+        &format!(
+            "{}: {name}{}",
+            virtualization_name(&dev.guid),
+            if was_on { "" } else { " (switched on)" }
+        ),
+    );
 }
 
 unsafe fn show_menu(hwnd: HWND) {
@@ -301,11 +346,82 @@ unsafe fn show_menu(hwnd: HWND) {
         .encode_utf16()
         .chain(Some(0))
         .collect();
+    // On headphones the effect is "off, or on in one of three rooms" — and the
+    // rooms sound very different — so it's one entry offering all four states
+    // rather than a toggle that lands you in whichever room was set last.
+    // Speakers have no rooms, so they keep a plain on/off.
+    let headphone_rooms = dev
+        .as_ref()
+        .filter(|d| is_headphones(&d.guid))
+        .map(|d| read_headphone_preset(&d.guid));
+    match headphone_rooms {
+        Some(current_preset) => {
+            if let Ok(sub) = CreatePopupMenu() {
+                let off_flags = if surround_on { MF_STRING } else { MF_STRING | MF_CHECKED };
+                let _ = AppendMenuW(sub, off_flags, IDM_VIRT_BASE, w!("Off"));
+                let _ = AppendMenuW(sub, MF_SEPARATOR, 0, PCWSTR::null());
+                for (i, name) in HEADPHONE_PRESETS.iter().enumerate() {
+                    let label: Vec<u16> = name.encode_utf16().chain(Some(0)).collect();
+                    let on_this = surround_on && current_preset == Some(i as i32);
+                    let flags = if on_this { MF_STRING | MF_CHECKED } else { MF_STRING };
+                    let _ = AppendMenuW(sub, flags, IDM_VIRT_BASE + 1 + i, PCWSTR(label.as_ptr()));
+                }
+                // Name the active room on the parent: a submenu can't be read
+                // at a glance otherwise, and knowing it's on matters less than
+                // knowing which room you're in.
+                let room = current_preset
+                    .and_then(|p| HEADPHONE_PRESETS.get(p as usize).copied())
+                    .unwrap_or("on");
+                let parent = dev
+                    .as_ref()
+                    .map(|d| virtualization_name(&d.guid))
+                    .unwrap_or("Headphone Virtualization");
+                let parent_text = if surround_on {
+                    format!("{parent}: {room}")
+                } else {
+                    parent.to_string()
+                };
+                let parent_w: Vec<u16> = parent_text.encode_utf16().chain(Some(0)).collect();
+                let mut flags = if usable { MF_STRING | MF_POPUP } else { MF_STRING | MF_GRAYED };
+                if surround_on {
+                    flags |= MF_CHECKED;
+                }
+                let _ = AppendMenuW(menu, flags, sub.0 as usize, PCWSTR(parent_w.as_ptr()));
+            }
+        }
+        None => {
+            let _ = AppendMenuW(
+                menu,
+                checked(surround_on),
+                IDM_SURROUND,
+                PCWSTR(surround_label.as_ptr()),
+            );
+        }
+    }
+
+    // What Windows does to other sounds during a call. Not one of the effects
+    // above — it's system-wide, so it isn't greyed with them.
+    let current_ducking = read_ducking();
+    let Ok(ducking_menu) = CreatePopupMenu() else { return };
+    for (i, mode) in Ducking::ALL.iter().enumerate() {
+        let label: Vec<u16> = mode.short().encode_utf16().chain(Some(0)).collect();
+        let flags = if *mode == current_ducking {
+            MF_STRING | MF_CHECKED
+        } else {
+            MF_STRING
+        };
+        let _ = AppendMenuW(
+            ducking_menu,
+            flags,
+            IDM_DUCKING_BASE + i,
+            PCWSTR(label.as_ptr()),
+        );
+    }
     let _ = AppendMenuW(
         menu,
-        checked(surround_on),
-        IDM_SURROUND,
-        PCWSTR(surround_label.as_ptr()),
+        MF_STRING | MF_POPUP,
+        ducking_menu.0 as usize,
+        w!("During calls"),
     );
     let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
 
@@ -336,6 +452,21 @@ unsafe fn show_menu(hwnd: HWND) {
         IDM_TOGGLE => do_toggle(hwnd),
         IDM_BASS => toggle_fx(hwnd, Fx::Bass),
         IDM_SURROUND => toggle_fx(hwnd, Fx::Surround),
+        cmd_id if (IDM_VIRT_BASE..=IDM_VIRT_BASE + HEADPHONE_PRESETS.len()).contains(&cmd_id) => {
+            match cmd_id - IDM_VIRT_BASE {
+                0 => toggle_fx(hwnd, Fx::SurroundOff),
+                n => set_preset(hwnd, (n - 1) as i32),
+            }
+        }
+        cmd_id if (IDM_DUCKING_BASE..IDM_DUCKING_BASE + Ducking::ALL.len()).contains(&cmd_id) => {
+            let mode = Ducking::ALL[cmd_id - IDM_DUCKING_BASE];
+            match set_ducking(mode) {
+                // Worth a balloon: it's system-wide and silent until the next
+                // call, so nothing else confirms it landed.
+                Ok(()) => balloon(hwnd, "During calls", mode.describe()),
+                Err(e) => balloon(hwnd, "Could not change it", &e.to_string()),
+            }
+        }
         IDM_AUTOSTART => set_autostart(!autostart_enabled()),
         IDM_EXIT => {
             let mut nid = base_nid(hwnd);

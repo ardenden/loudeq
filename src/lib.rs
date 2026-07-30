@@ -80,6 +80,12 @@ pub const FORM_FACTOR_VALUE: &str = "{1da5d803-d492-4edd-8c23-e0c0ffee7f0e},0";
 /// PKEY_ItemNameDisplay on FxProperties — names the effect pack the endpoint
 /// loads, e.g. "Microsoft Audio Home Theater Effects".
 pub const FX_PACK_NAME_VALUE: &str = "{b725f130-47ef-101a-a5f1-02608c9eebac},10";
+/// Present on an effect instance that actually hosts an APO (it names the
+/// effect slot). Windows also creates two placeholder instances per endpoint,
+/// which carry no instance-level values at all — this is what tells them
+/// apart, and the real one is the copy both the engine and the Enhancements
+/// dialog use.
+pub const FX_APO_SLOT_VALUE: &str = "{d04e05a6-594b-4fb6-a80d-01af5eed7d1d},0";
 
 /// The Loudness Equalization enable flag as a PROPERTYKEY (same property as
 /// LOUDNESS_VALUE, for the property-store paths).
@@ -802,6 +808,31 @@ fn read_fx_raw(guid: &str, value_name: &str) -> Option<RegValue> {
     let fx = RegKey::predef(HKEY_LOCAL_MACHINE)
         .open_subkey_with_flags(fx_properties_path(guid), KEY_READ)
         .ok()?;
+
+    // Prefer the instance that actually hosts an APO. Windows creates two
+    // placeholder instances on every endpoint — they exist even on devices
+    // with no effects at all — and the Enhancements dialog writes only the
+    // real one, so the placeholders keep whatever loudeq last wrote and drift
+    // out of step. Picking by write time instead made the answer depend on
+    // which effect was touched last, since writing any effect refreshes every
+    // instance's timestamp: toggling bass could flip the reported loudness.
+    for inst in fx.enum_keys().flatten() {
+        let hosts_apo = fx
+            .open_subkey_with_flags(&inst, KEY_READ)
+            .map(|k| k.get_raw_value(FX_APO_SLOT_VALUE).is_ok())
+            .unwrap_or(false);
+        if !hosts_apo {
+            continue;
+        }
+        if let Ok(user) = fx.open_subkey_with_flags(format!(r"{inst}\User"), KEY_READ) {
+            if let Ok(rv) = user.get_raw_value(value_name) {
+                return Some(rv);
+            }
+        }
+    }
+
+    // No APO instance (or it doesn't carry this property yet) — fall back to
+    // whichever placeholder was written most recently, then the flat value.
     let mut newest: Option<(u64, RegValue)> = None;
     for inst in fx.enum_keys().flatten() {
         let Ok(user) = fx.open_subkey_with_flags(format!(r"{inst}\User"), KEY_READ) else {
