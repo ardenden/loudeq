@@ -47,6 +47,8 @@ enum Action {
     Tray,
     Bass(FxOp),
     Surround(FxOp),
+    /// None shows the current setting.
+    Ducking(Option<Ducking>),
 }
 
 /// Sub-operation for the Bass Boost / Virtual Surround commands. Freq/Level
@@ -133,6 +135,22 @@ fn parse_args() -> Result<Options, String> {
             "surround" | "virtualsurround" => {
                 action = Some(Action::Surround(parse_fx_op(&mut args, false)?))
             }
+            "ducking" | "duck" => {
+                action = Some(Action::Ducking(
+                    match args.next().as_deref().map(str::to_ascii_lowercase).as_deref() {
+                        None | Some("status") => None,
+                        Some("off") | Some("nothing") | Some("none") => Some(Ducking::DoNothing),
+                        Some("mute") => Some(Ducking::MuteOthers),
+                        Some("80") => Some(Ducking::Reduce80),
+                        Some("50") => Some(Ducking::Reduce50),
+                        Some(other) => {
+                            return Err(format!(
+                                "unknown ducking setting: {other} (use off, mute, 80 or 50)"
+                            ))
+                        }
+                    },
+                ));
+            }
             "-d" | "--device" => {
                 device_filter =
                     Some(args.next().ok_or("--device requires a name (substring)")?);
@@ -209,6 +227,8 @@ COMMANDS:
     surround [on|off|status]    Toggle Virtual Surround — called Headphone
                                 Virtualization on headphones (default: toggle)
     surround preset <name>      Headphone room preset: studio, jazz or hall
+    ducking [off|mute|80|50]    What Windows does to other sounds during calls
+                                (`off` = stop it lowering your music)
     meter       Sample the device's output level for 5 s (verify the effect)
     tray        Start the tray app (loudeq-tray.exe): icon shows the state,
                 click toggles
@@ -400,6 +420,27 @@ fn run(opts: &Options) -> Result<(), String> {
                 }
                 FxOp::Freq(_) | FxOp::Level(_) => {
                     Err(format!("{label} has no frequency/level settings"))
+                }
+            }
+        }
+        Action::Ducking(want) => {
+            // System-wide, so no device to resolve.
+            match want {
+                None => {
+                    println!(
+                        "When Windows detects communications activity: {}",
+                        read_ducking().describe()
+                    );
+                    Ok(())
+                }
+                Some(mode) => {
+                    set_ducking(mode).map_err(|e| format!("could not change it: {e}"))?;
+                    say!(
+                        "When Windows detects communications activity: {}",
+                        read_ducking().describe()
+                    );
+                    say!("(applies to calls started from now on)");
+                    Ok(())
                 }
             }
         }

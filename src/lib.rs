@@ -708,6 +708,88 @@ pub fn read_mono_audio() -> bool {
         .unwrap_or(false)
 }
 
+/// What Windows does to other sounds while a call is in progress — the Sound
+/// control panel's Communications tab. System-wide, like mono audio, not
+/// per-device.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ducking {
+    MuteOthers,
+    Reduce80,
+    Reduce50,
+    DoNothing,
+}
+
+impl Ducking {
+    /// The stored value; the Communications tab's own order.
+    pub fn value(self) -> u32 {
+        match self {
+            Ducking::MuteOthers => 0,
+            Ducking::Reduce80 => 1,
+            Ducking::Reduce50 => 2,
+            Ducking::DoNothing => 3,
+        }
+    }
+
+    pub fn from_value(v: u32) -> Option<Self> {
+        Some(match v {
+            0 => Ducking::MuteOthers,
+            1 => Ducking::Reduce80,
+            2 => Ducking::Reduce50,
+            3 => Ducking::DoNothing,
+            _ => return None,
+        })
+    }
+
+    /// Worded like the control panel, so the two are recognisably the same.
+    pub fn describe(self) -> &'static str {
+        match self {
+            Ducking::MuteOthers => "Mute all other sounds",
+            Ducking::Reduce80 => "Reduce the volume of other sounds by 80%",
+            Ducking::Reduce50 => "Reduce the volume of other sounds by 50%",
+            Ducking::DoNothing => "Do nothing",
+        }
+    }
+
+    /// Short enough for a dropdown or menu item.
+    pub fn short(self) -> &'static str {
+        match self {
+            Ducking::MuteOthers => "Mute others",
+            Ducking::Reduce80 => "Reduce by 80%",
+            Ducking::Reduce50 => "Reduce by 50%",
+            Ducking::DoNothing => "Do nothing",
+        }
+    }
+
+    /// In the control panel's order, for populating a list.
+    pub const ALL: [Ducking; 4] = [
+        Ducking::MuteOthers,
+        Ducking::Reduce80,
+        Ducking::Reduce50,
+        Ducking::DoNothing,
+    ];
+}
+
+const DUCKING_VALUE: &str = "UserDuckingPreference";
+const MULTIMEDIA_AUDIO_KEY: &str = r"Software\Microsoft\Multimedia\Audio";
+
+/// What Windows currently does to other sounds during a call. The value is
+/// absent until it's been changed once; Windows' default is Reduce80.
+pub fn read_ducking() -> Ducking {
+    RegKey::predef(HKEY_CURRENT_USER)
+        .open_subkey(MULTIMEDIA_AUDIO_KEY)
+        .and_then(|k| k.get_value::<u32, _>(DUCKING_VALUE))
+        .ok()
+        .and_then(Ducking::from_value)
+        .unwrap_or(Ducking::Reduce80)
+}
+
+/// Set it — the same single value the Communications tab writes, in HKCU, so
+/// no admin. Takes effect for calls started afterwards.
+pub fn set_ducking(mode: Ducking) -> io::Result<()> {
+    let (key, _) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(MULTIMEDIA_AUDIO_KEY)?;
+    key.set_value(DUCKING_VALUE, &mode.value())
+}
+
 /// Read an FX property, preferring the Win11 per-instance `\User` stores (what
 /// the engine honors) and falling back to the flat value.
 ///
