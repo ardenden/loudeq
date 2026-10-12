@@ -62,7 +62,17 @@ Also known as volume leveling or volume normalizer. If you've been trying to equ
   add-on by this ID; nothing else ties the code to it, and it can't be changed
   after creation.
 - **Product lifetime:** Forever
+- **Content type:** Electronic software download (it unlocks features in the
+  installed app; there's no service behind it, so not "Software as a service")
+- **Privacy policy:** "No" to accessing personal information (the purchase is
+  Microsoft's dialog; the app only learns owned / not owned), URL filled in
+  anyway: https://github.com/ardenden/loudeq/blob/main/PRIVACY.md
 - **Pricing:** $4.99 (base price tier; let Partner Center localise it), no free trial
+- **Visibility:** Public audience. First submission: *Hidden in the Microsoft
+  Store → Available for purchase from within the parent product only*, so
+  nobody can buy it from the listing while the installed app (≤0.2.3) can't
+  unlock it. Once Store package 0.3.0 is live, resubmit the add-on as *Can be
+  displayed in the parent product's Microsoft Store listing*.
 - **Store listing title:** LoudEQ Pro
 - **Store listing description:** Automation for LoudEQ: remember settings per
   device, per-app rules, night mode, a global hotkey, a playback device
