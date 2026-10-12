@@ -33,7 +33,15 @@ LoudEQ makes it one click:
 - **Start with Windows** (optional)
 - **Command line included** — `loudeq on / off / toggle / status / list`, plus `loudeq bass`, `loudeq surround` and `loudeq ducking`
 
-Free, open source, and completely offline — it never connects to the internet and collects no data. Source code: https://github.com/ardenden/loudeq
+**LoudEQ Pro** — an optional one-time upgrade, bought inside the app — adds automation:
+
+- **Remember settings per device** — loudness, bass, virtualization and release time come back by themselves whenever that device does
+- **Per-app rules** — force Loudness EQ on or off while a particular app is playing
+- **Night mode** — loudness switches on automatically during the hours you pick
+- **Global hotkey**, a one-click **playback device switcher**, and adjustable **release time**
+- **A settings window** with every control in one place, plus a live output meter
+
+Everything above the Pro section is free, and its source is open: https://github.com/ardenden/loudeq. LoudEQ collects no data. It only goes online to check for or buy Pro through the Microsoft Store.
 
 Also known as volume leveling or volume normalizer. If you've been trying to equalize volume between quiet dialogue and loud action, or want a night mode that stops explosions waking the house, this is the Windows setting you're looking for.
 
@@ -43,7 +51,23 @@ Also known as volume leveling or volume normalizer. If you've been trying to equ
 
 **Age rating:** everyone / no sensitive content (all questionnaire answers "no")
 
-**Pricing:** Free
+**Pricing:** Free, with one in-app purchase (the add-on below)
+
+---
+
+## Add-on: LoudEQ Pro (Partner Center → Add-ons → Create a new add-on)
+
+- **Product type:** Durable
+- **Product ID:** `loudeq_pro` — ⚠️ must be exactly this. The tray finds the
+  add-on by this ID; nothing else ties the code to it, and it can't be changed
+  after creation.
+- **Product lifetime:** Forever
+- **Pricing:** $4.99 (base price tier; let Partner Center localise it), no free trial
+- **Store listing title:** LoudEQ Pro
+- **Store listing description:** Automation for LoudEQ: remember settings per
+  device, per-app rules, night mode, a global hotkey, a playback device
+  switcher and a settings window with every control in one place. One-time
+  purchase.
 
 **Search terms** (Partner Center → Store listing → Search terms; max 7 unique, ≤30 chars each — hidden keywords for phrases NOT already in the display name/description):
 - bass booster

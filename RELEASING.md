@@ -118,13 +118,23 @@ New-Item -ItemType Directory $stage | Out-Null
 
 Copy-Item store\AppxManifest.xml $stage
 Copy-Item store\Assets $stage -Recurse
-Copy-Item target\release\loudeq.exe,target\release\loudeq-tray.exe $stage
+Copy-Item target\release\loudeq.exe $stage
+# The Store's tray is the Pro build (private repo, sibling checkout), shipped
+# under the free tray's name. Without the Pro add-on it behaves exactly like
+# loudeq-tray.exe; keeping the name keeps the manifest, the StartupTask and
+# existing users' pins pointing at it.
+Copy-Item ..\loudeq-pro\target\release\loudeq-pro-tray.exe "$stage\loudeq-tray.exe"
 
 $makeappx = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\makeappx.exe"
 & $makeappx pack /d $stage /p "store\loudeq-$ver.msix" /o
 ```
 
 `store/*.msix` is gitignored — the packages are build output, not source.
+
+⚠️ **Never pack this repo's own `loudeq-tray.exe` into the Store package.** It
+has no licence check, so Pro owners would lose Pro on that update. Build Pro
+first (its `RELEASING.md` covers the build and its core tag pin), and run the
+VCRUNTIME check above on `loudeq-pro-tray.exe` too.
 
 ### 3. Submit in Partner Center
 

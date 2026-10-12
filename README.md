@@ -13,7 +13,7 @@ Loudness Equalization (a.k.a. volume leveling / loudness equalizer) is the built
 - Devices managed by a **manufacturer's audio app** (Realtek Audio Console, Nahimic, Waves, Dolby) run that vendor's effects instead of Windows', so their settings live in that app — loudeq greys those out and tells you, rather than pretending to change something
 - Applies **live** to playing audio — no audio-service restart, no admin prompt
 - Tiny (~400 KB), **no runtime required**, fully **offline** (no network, no data collection), open source
-- **[Get it on the Microsoft Store](https://apps.microsoft.com/detail/9P5P88XR7NB8?cid=github-readme)** for a signed one-click install, or build from source below
+- **[Get it on the Microsoft Store](https://apps.microsoft.com/detail/9P5P88XR7NB8?cid=github-readme)** for a signed one-click install, or build from source below. The Store version also offers **LoudEQ Pro**, an optional one-time purchase that adds automation (per-device memory, per-app rules, night mode, a hotkey). Pro's code is not open source, and checking for or buying it is the Store version's only network activity. Everything in this repository is free
 
 > **Just looking for the setting?** See
 > **[Where did Loudness Equalization go in Windows 11 (and how to get it back)](docs/windows-11-loudness-equalization.md)**
